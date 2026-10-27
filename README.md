@@ -32,7 +32,7 @@ Open http://127.0.0.1:8787. The API controls code execution and is designed for 
 
 Choose a public GitHub repository or an absolute local project directory. Oriclus snapshots files without modifying the source, reads supported manifests and fetches release metadata from public registries. The timeline aligns releases on publication dates; rows are direct dependencies with available transitive entries in lockfiles. Missing dates and metadata are shown as unknown. Choose a release to resolve a candidate set and inspect declared requirements. A resolution is not a test result.
 
-To run an experiment, select up to five releases of a direct dependency, review the test command, and choose **Run Sandbox tests**. Oriclus prepares the project once, checks the baseline, branches each candidate, and runs the same selected tests offline. A passing baseline is required to classify a candidate as passed or failed; otherwise the comparison is inconclusive. For a new failure, Nemotron may propose a source patch, which is checked against the original tests on a fresh candidate branch. The patch is not applied to the user's project.
+To run an experiment, select up to five releases of a dependency, review the test command, and choose **Run Sandbox tests**. Oriclus prepares the project once, checks the baseline, branches each candidate, and runs the same selected tests offline. A passing baseline is required to classify a candidate as passed or failed; otherwise the comparison is inconclusive. For a new failure, Nemotron may propose a source patch, which is checked against the original tests on a fresh candidate branch. The patch is not applied to the user's project.
 
 Two deliberately small examples are available:
 

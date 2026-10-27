@@ -345,6 +345,14 @@ export default function App() {
                     </dd>
                   </div>
                   <div>
+                    <dt>Nebius Sandboxes</dt>
+                    <dd>
+                      {health.data.sandbox_configured
+                        ? "Configured; access is checked when an operation starts."
+                        : "Add a Sandbox key and project ID to .env."}
+                    </dd>
+                  </div>
+                  <div>
                     <dt>Model</dt>
                     <dd>
                       {health.data.inference_configured
@@ -367,8 +375,9 @@ export default function App() {
               <summary>Environment details</summary>
               <p>
                 Keys stay in the project’s .env. Restart the server after
-                changing them. Discovery reads public GitHub source;
-                installation and tests run only after you start a check.
+                changing them. Version resolution sends project files to Nebius
+                and runs package-manager commands; tests run after you start an
+                experiment.
               </p>
               <p>
                 Existing release rehearsals use Docker. Time machine experiments

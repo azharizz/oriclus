@@ -8,15 +8,6 @@
   gap: 24px;
   margin: 3px 0 30px;
 }
-.tm-eyebrow {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  color: var(--green);
-  font-size: 12px;
-  font-weight: 600;
-  margin-bottom: 13px;
-}
 .tm-heading h1 {
   font-size: clamp(24px, 2.2vw, 31px);
   letter-spacing: -0.035em;
@@ -24,17 +15,6 @@
 .tm-heading p {
   margin-top: 9px;
   color: var(--muted);
-}
-.tm-heading-meta {
-  color: #777780;
-  font-size: 10px;
-  letter-spacing: 0.11em;
-  white-space: nowrap;
-  padding-top: 4px;
-}
-.tm-heading-meta span {
-  color: #55555f;
-  margin: 0 5px;
 }
 .tm-source {
   background: var(--surface);
@@ -104,6 +84,36 @@
   font-size: 11px;
   color: #95959f;
   max-width: none;
+}
+.tm-recent {
+  margin-top: 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 10px 14px;
+}
+.tm-recent summary {
+  cursor: pointer;
+  color: var(--muted);
+}
+.tm-recent summary svg {
+  vertical-align: middle;
+}
+.tm-recent-list {
+  display: grid;
+  gap: 4px;
+  margin-top: 10px;
+}
+.tm-recent-list button {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 16px;
+  padding: 8px;
+  text-align: left;
+  color: var(--muted);
+}
+.tm-recent-list button strong {
+  color: var(--ink);
 }
 .tm-intro {
   border: 1px solid var(--line);
@@ -667,7 +677,6 @@
   }
 }
 @media (max-width: 700px) {
-  .tm-heading-meta,
   .tm-source-heading small,
   .tm-legend-note {
     display: none;

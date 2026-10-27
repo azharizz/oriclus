@@ -115,6 +115,7 @@ export type Health = {
   model: string;
   inference_configured: boolean;
   tavily_configured: boolean;
+  sandbox_configured: boolean;
   sandbox: string;
   active_run: { id: string; title: string; status: string } | null;
 };

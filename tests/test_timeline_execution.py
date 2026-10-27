@@ -40,6 +40,17 @@ class ExecutionTests(unittest.TestCase):
                 runs.interrupt_unfinished()
                 self.assertEqual(runs.get(active["id"])["status"], "interrupted")
                 self.assertEqual(runs.get(done["id"])["status"], "completed")
+                self.assertEqual({item["id"] for item in runs.recent()}, set())
+                runs._save(
+                    {
+                        "id": "c" * 32,
+                        "analysis_id": "d" * 32,
+                        "package": "demo",
+                        "versions": ["1"],
+                        "status": "completed",
+                    }
+                )
+                self.assertEqual(runs.recent()[0]["package"], "demo")
                 with self.assertRaisesRegex(Exception, "Invalid timeline run ID"):
                     runs._save({"id": "../outside", "status": "running"})
 
@@ -98,6 +109,44 @@ class ExecutionTests(unittest.TestCase):
             self.assertEqual(result["stdout"], "failure output")
             self.assertEqual(result["operation_id"], "test-op")
             self.assertEqual(len(requests), 2)
+
+        asyncio.run(check())
+
+    def test_cancelled_run_keeps_interrupted_evidence(self):
+        async def check():
+            started = asyncio.Event()
+
+            class WaitingSandbox:
+                async def project(self, path, ecosystem):
+                    started.set()
+                    await asyncio.sleep(60)
+
+            analysis = {
+                "ecosystem": "python",
+                "packages": [
+                    {"name": "demo", "direct": True, "releases": [{"version": "1"}]}
+                ],
+            }
+            with tempfile.TemporaryDirectory() as directory:  # noqa: SIM117
+                with (
+                    patch("server.timeline_execution.RUNS", Path(directory)),
+                    patch("server.timeline_execution.Sandbox", WaitingSandbox),
+                    patch("server.time_machine.get_analysis", return_value=analysis),
+                    patch(
+                        "server.time_machine.snapshot_path",
+                        return_value=Path(directory),
+                    ),
+                ):
+                    runs = TimelineRuns()
+                    run = await runs.start(
+                        "a" * 32, "demo", ["1"], "python -m unittest"
+                    )
+                    await started.wait()
+                    task = runs.tasks[run["id"]]
+                    await runs.cancel(run["id"])
+                    await task
+                    self.assertEqual(runs.get(run["id"])["status"], "cancelled")
+                    self.assertIn("not verified", runs.get(run["id"])["error"])
 
         asyncio.run(check())
 

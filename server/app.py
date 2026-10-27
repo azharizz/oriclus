@@ -16,6 +16,7 @@ from starlette.middleware.trustedhost import TrustedHostMiddleware
 from server.config import (
     BASE_URL,
     DATA,
+    ENV,
     IMAGE,
     KEY,
     MODEL,
@@ -29,6 +30,7 @@ from server.planning import Planner
 from server.sandbox import cleanup, command
 from server.store import Store
 from server.time_machine import analyze as analyze_timeline
+from server.time_machine import get_analysis
 from server.time_machine import resolve as resolve_timeline
 from server.timeline_execution import TimelineRuns
 from server.workflow import Rehearsal
@@ -122,6 +124,10 @@ async def readiness() -> dict:
             "model": MODEL,
             "inference_configured": bool(KEY and MODEL and BASE_URL),
             "tavily_configured": bool(TAVILY_KEY),
+            "sandbox_configured": bool(
+                ENV.get("NEBIUS_PROJECT_ID")
+                and (ENV.get("NEBIUS_SANDBOX_API_KEY") or KEY)
+            ),
             "sandbox": "Docker filesystem snapshots",
         }
     except FileNotFoundError:
@@ -131,6 +137,10 @@ async def readiness() -> dict:
             "model": MODEL,
             "inference_configured": bool(KEY and MODEL and BASE_URL),
             "tavily_configured": bool(TAVILY_KEY),
+            "sandbox_configured": bool(
+                ENV.get("NEBIUS_PROJECT_ID")
+                and (ENV.get("NEBIUS_SANDBOX_API_KEY") or KEY)
+            ),
             "sandbox": "Docker filesystem snapshots",
         }
 
@@ -359,6 +369,19 @@ async def timeline_resolve(spec: TimelineSelection):
         return await resolve_timeline(spec.id, spec.package, spec.version)
     except (BoundaryError, ValueError) as error:
         raise HTTPException(400, str(error)) from error
+
+
+@app.get("/api/timeline/analyses/{analysis_id}")
+async def timeline_analysis(analysis_id: str):
+    try:
+        return get_analysis(analysis_id)
+    except (BoundaryError, OSError, ValueError) as error:
+        raise HTTPException(404, "Timeline analysis not found.") from error
+
+
+@app.get("/api/timeline/runs")
+async def timeline_recent(limit: Annotated[int, Query(ge=1, le=100)] = 10):
+    return timeline_runs.recent(limit)
 
 
 @app.post("/api/timeline/runs", status_code=202)

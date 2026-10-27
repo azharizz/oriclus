@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
   ArrowRight,
@@ -36,6 +36,11 @@ type Resolution = {
   requirements: Record<string, string>;
   message: string;
   packages?: Dependency[];
+  explanation?: {
+    summary: string;
+    suggestions: string[];
+    limitations: string[];
+  } | null;
 };
 type Result = {
   version?: string;
@@ -65,9 +70,18 @@ type Result = {
 type Experiment = {
   id: string;
   status: string;
+  package: string;
+  test_command: string;
   baseline?: Result | null;
   results: Result[];
   error?: string | null;
+};
+type RecentExperiment = {
+  id: string;
+  analysis_id: string;
+  package: string;
+  versions: string[];
+  status: string;
 };
 type Selection = { name: string; version: string };
 
@@ -116,6 +130,20 @@ export default function Timeline() {
   const [runId, setRunId] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [runError, setRunError] = useState("");
+  const [recentLimit, setRecentLimit] = useState(10);
+
+  useEffect(() => {
+    if (analysis && scrollRef.current) {
+      scrollRef.current.scrollLeft = scrollRef.current.scrollWidth;
+    }
+  }, [analysis]);
+
+  const recent = useQuery({
+    queryKey: ["timeline-recent", recentLimit],
+    queryFn: () =>
+      api<RecentExperiment[]>(`/timeline/runs?limit=${recentLimit}`),
+    refetchInterval: 15000,
+  });
 
   const resolution = useQuery({
     queryKey: [
@@ -229,7 +257,7 @@ export default function Timeline() {
   function choose(name: string, version: string) {
     if (selection?.name !== name) {
       setQueued([]);
-      setRunId(null);
+      if (run.data?.package !== name) setRunId(null);
     }
     setSelection({ name, version });
     const release = packages
@@ -270,12 +298,35 @@ export default function Timeline() {
         test_command: testCommand.trim(),
       });
       setRunId(created.id);
+      await recent.refetch();
     } catch (err) {
       setRunError(
         err instanceof Error ? err.message : "Could not start this experiment.",
       );
     } finally {
       setSubmitting(false);
+    }
+  }
+
+  async function openRecent(item: RecentExperiment) {
+    setError("");
+    try {
+      const [saved, experiment] = await Promise.all([
+        api<Analysis>(
+          `/timeline/analyses/${encodeURIComponent(item.analysis_id)}`,
+        ),
+        api<Experiment>(`/timeline/runs/${encodeURIComponent(item.id)}`),
+      ]);
+      setAnalysis(saved);
+      setSelection(null);
+      setQueued([]);
+      setRunId(item.id);
+      setTestCommand(experiment.test_command);
+      setRunError("");
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : "Could not open this experiment.",
+      );
     }
   }
 
@@ -297,18 +348,12 @@ export default function Timeline() {
     <section className="time-machine">
       <header className="tm-heading">
         <div>
-          <span className="tm-eyebrow">
-            <CalendarDays size={14} /> Dependency time machine
-          </span>
-          <h1>See how dependencies change together.</h1>
+          <h1>Dependency time machine</h1>
           <p>
             Explore releases, resolve a version, and test the combination before
             you upgrade.
           </p>
         </div>
-        <span className="tm-heading-meta">
-          ORICLUS <span>/</span> WORKSPACE
-        </span>
       </header>
       <form className="tm-source" onSubmit={analyze}>
         <div className="tm-source-heading">
@@ -357,8 +402,9 @@ export default function Timeline() {
           </button>
         </div>
         <p className="tm-source-note">
-          Resolving a version or running tests sends relevant project files to
-          Nebius. Review your source and test command before continuing.
+          Resolving or testing uploads project files to Nebius Sandboxes. Failed
+          test output and relevant source may be sent to Nemotron. Review your
+          files and command before continuing.
         </p>
         {error && (
           <p role="alert" className="error">
@@ -366,6 +412,37 @@ export default function Timeline() {
           </p>
         )}
       </form>
+      {!!recent.data?.length && (
+        <details className="tm-recent">
+          <summary>
+            Recent Sandbox experiments <ChevronDown size={14} />
+          </summary>
+          <div className="tm-recent-list">
+            {recent.data.map((item) => (
+              <button
+                key={item.id}
+                type="button"
+                onClick={() => openRecent(item)}
+              >
+                <strong>{item.package}</strong>
+                <span>{item.versions.join(", ")}</span>
+                <span>{resultLabel(item.status)}</span>
+                <span>Run {item.id.slice(0, 8)}</span>
+              </button>
+            ))}
+            {recent.data.length >= recentLimit && recentLimit < 100 && (
+              <button
+                type="button"
+                onClick={() =>
+                  setRecentLimit((value) => Math.min(100, value + 10))
+                }
+              >
+                Show more experiments
+              </button>
+            )}
+          </div>
+        </details>
+      )}
       {!analysis ? (
         <div className="tm-intro">
           <div className="tm-intro-title">
@@ -531,17 +608,33 @@ export default function Timeline() {
                           }}
                         >
                           <option value="">Browse releases</option>
-                          {pkg.releases.map((release, index) => (
-                            <option
-                              key={`${release.version}-${index}`}
-                              value={release.version}
-                            >
-                              {release.version}
-                              {dateValue(release.date) !== null
-                                ? ` · ${new Date(release.date!).toLocaleDateString()}`
-                                : " · date unknown"}
-                            </option>
-                          ))}
+                          {[...pkg.releases]
+                            .sort((a, b) => {
+                              const first = dateValue(a.date);
+                              const second = dateValue(b.date);
+                              return first === null
+                                ? second === null
+                                  ? a.version.localeCompare(
+                                      b.version,
+                                      undefined,
+                                      { numeric: true },
+                                    )
+                                  : 1
+                                : second === null
+                                  ? -1
+                                  : first - second;
+                            })
+                            .map((release, index) => (
+                              <option
+                                key={`${release.version}-${index}`}
+                                value={release.version}
+                              >
+                                {release.version}
+                                {dateValue(release.date) !== null
+                                  ? ` · ${new Date(release.date!).toLocaleDateString()}`
+                                  : " · date unknown"}
+                              </option>
+                            ))}
                         </select>
                       </div>
                       <div
@@ -568,7 +661,7 @@ export default function Timeline() {
                             resolution.data.selected[pkg.name] ===
                               release.version;
                           const tested =
-                            selection?.name === pkg.name
+                            run.data?.package === pkg.name
                               ? run.data?.results?.find(
                                   (result) =>
                                     result.version === release.version,
@@ -661,6 +754,48 @@ export default function Timeline() {
                     ) : resolution.data ? (
                       <>
                         <p>{resolution.data.message}</p>
+                        {resolution.data.explanation && (
+                          <details>
+                            <summary>
+                              Nemotron explanation <ChevronDown size={14} />
+                            </summary>
+                            <p>{resolution.data.explanation.summary}</p>
+                            {resolution.data.explanation.suggestions.map(
+                              (item, i) => (
+                                <p key={i}>{item}</p>
+                              ),
+                            )}
+                            {resolution.data.explanation.limitations.map(
+                              (item, i) => (
+                                <p className="tm-limit" key={i}>
+                                  {item}
+                                </p>
+                              ),
+                            )}
+                            <p className="tm-limit">
+                              Model suggestions are advisory and have not been
+                              tested.
+                            </p>
+                          </details>
+                        )}
+                        {Object.keys(resolution.data.requirements).length >
+                          0 && (
+                          <details>
+                            <summary>
+                              Declared requirements <ChevronDown size={14} />
+                            </summary>
+                            <dl>
+                              {Object.entries(resolution.data.requirements).map(
+                                ([name, requirement]) => (
+                                  <div key={name}>
+                                    <dt>{name}</dt>
+                                    <dd>{requirement}</dd>
+                                  </div>
+                                ),
+                              )}
+                            </dl>
+                          </details>
+                        )}
                         {Object.keys(resolution.data.selected || {}).length >
                           0 && (
                           <details>

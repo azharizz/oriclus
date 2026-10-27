@@ -615,6 +615,7 @@ export default function RunView({
             {run.request.baseline_ref && run.request.candidate_ref
               ? ` · ${shortRef(run.request.baseline_ref)} → ${shortRef(run.request.candidate_ref)}`
               : ""}
+            {" · Docker rehearsal"}
           </p>
         </div>
         <Status value={run.status} />

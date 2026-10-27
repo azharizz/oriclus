@@ -368,7 +368,9 @@ class TimelineRuns:
         RUNS.mkdir(parents=True, exist_ok=True)
 
     def _save(self, run: dict) -> None:
-        if not re.fullmatch(r"[a-f0-9]{32}", run.get("id", "")):
+        if not isinstance(run.get("id"), str) or not re.fullmatch(
+            r"[a-f0-9]{32}", run["id"]
+        ):
             raise BoundaryError("Invalid timeline run ID.")
         path = RUNS / (run["id"] + ".json")
         with tempfile.NamedTemporaryFile(mode="w", dir=RUNS, delete=False) as output:
@@ -398,20 +400,38 @@ class TimelineRuns:
         path = RUNS / (run_id + ".json")
         return json.loads(path.read_text()) if path.exists() else None
 
+    def recent(self, limit: int = 10) -> list[dict]:
+        items = []
+        for path in sorted(
+            RUNS.glob("*.json"), key=lambda item: item.stat().st_mtime, reverse=True
+        ):
+            try:
+                run = json.loads(path.read_text())
+                items.append(
+                    {
+                        key: run[key]
+                        for key in (
+                            "id",
+                            "analysis_id",
+                            "package",
+                            "versions",
+                            "status",
+                        )
+                    }
+                )
+            except (OSError, ValueError, KeyError):
+                continue
+            if len(items) >= limit:
+                break
+        return items
+
     async def start(
         self, analysis_id: str, package: str, versions: list[str], test_command: str
     ) -> dict:
         from server.time_machine import get_analysis, snapshot_path
 
         analysis = get_analysis(analysis_id)
-        match = next(
-            (
-                p
-                for p in analysis["packages"]
-                if p["name"] == package and p.get("direct")
-            ),
-            None,
-        )
+        match = next((p for p in analysis["packages"] if p["name"] == package), None)
         if (
             not match
             or not versions
@@ -419,7 +439,7 @@ class TimelineRuns:
             or not 0 < len(test_command) <= 8000
         ):
             raise BoundaryError(
-                "Choose a direct dependency, one to five releases, and a test command."
+                "Choose a dependency, one to five releases, and a test command."
             )
         known = {r["version"] for r in match.get("releases", [])}
         if any(

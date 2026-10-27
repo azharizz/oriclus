@@ -43,6 +43,17 @@ class SnapshotTests(unittest.TestCase):
             self.assertFalse(packages[1]["direct"])
             self.assertFalse(warnings)
 
+    def test_python_preserves_extras_exclusions_and_environment_markers(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp)
+            (path / "requirements.txt").write_text(
+                'requests[security]>=2,!=2.20; python_version >= "3.10"\n'
+            )
+            _, packages, _ = time_machine._python_dependencies(path)
+            self.assertIn("!=2.20", packages[0]["requirement"])
+            self.assertEqual(packages[0]["extras"], ["security"])
+            self.assertIn("python_version", packages[0]["marker"])
+
     def test_node_parses_scoped_and_transitive_packages(self):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp)
@@ -139,6 +150,16 @@ class ResolverTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(BoundaryError):
             time_machine.candidate_script(self.analysis, "MarkupSafe", "3.0")
 
+    def test_partial_pip_manifest_is_not_reported_as_a_complete_resolution(self):
+        analysis = {
+            **self.analysis,
+            "warnings": [
+                "Requirements file options and nested requirement files need review."
+            ],
+        }
+        with self.assertRaisesRegex(BoundaryError, "could not be analyzed fully"):
+            time_machine.candidate_script(analysis, "MarkupSafe", "2.1.5")
+
     async def test_resolution_is_not_presented_as_tested_and_conflict_is_distinct(self):
         from unittest.mock import AsyncMock
 
@@ -194,6 +215,45 @@ class ResolverTests(unittest.IsolatedAsyncioTestCase):
         ):
             result = await time_machine.resolve("a" * 32, "MarkupSafe", "2.1.5")
             self.assertEqual(result["status"], "error")
+
+    async def test_conflict_keeps_real_resolver_output_and_advisory_explanation(self):
+        from unittest.mock import AsyncMock
+
+        explanation = {
+            "summary": "Constraints conflict",
+            "suggestions": [],
+            "limitations": [],
+        }
+        with (
+            patch.object(time_machine, "get_analysis", return_value=self.analysis),
+            patch.object(
+                time_machine, "snapshot_path", return_value=Path("/tmp/project")
+            ),
+            patch.object(
+                time_machine,
+                "version_requirements",
+                new=AsyncMock(return_value=({}, True)),
+            ),
+            patch.object(
+                time_machine,
+                "explain_conflict",
+                new=AsyncMock(return_value=explanation),
+            ),
+            patch(
+                "server.timeline_execution.execute_snapshot",
+                new=AsyncMock(
+                    return_value={
+                        "exit_code": 1,
+                        "stdout": "ResolutionImpossible: conflicting constraints",
+                        "stderr": "",
+                    }
+                ),
+            ),
+        ):
+            result = await time_machine.resolve("a" * 32, "MarkupSafe", "2.1.5")
+            self.assertEqual(result["status"], "conflict")
+            self.assertIn("ResolutionImpossible", result["message"])
+            self.assertEqual(result["explanation"], explanation)
 
     async def test_resolver_adds_new_transitive_packages_to_the_timeline(self):
         from unittest.mock import AsyncMock
