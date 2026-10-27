@@ -200,12 +200,12 @@ export default function News({
           </span>
         </div>
         <p>
-          The feed is saved locally. Refresh searches Tavily once per distinct
-          visible library and may use credits; package names, including private
-          names, are sent to Tavily. Returned excerpts may be sent to the
-          configured model. Use the project and name filters to limit the
-          search. Related entries may be optional and are not necessarily
-          installed.
+          The feed is saved locally. Refresh searches Tavily once per matching
+          library, including those not yet shown, and may use credits; package
+          names, including private names, are sent to Tavily. Returned excerpts
+          may be sent to the configured model. Use the project and name filters
+          to limit the search. Related entries may be optional and are not
+          necessarily installed.
         </p>
       </div>
       {active && status.data && (
@@ -290,6 +290,14 @@ export default function News({
               }}
             >
               <option value="">Choose a project</option>
+              {analysisId &&
+                !feed.data?.projects.some(
+                  (item) => item.analysis_id === analysisId,
+                ) && (
+                  <option value={analysisId}>
+                    Current analysis · {analysisId.slice(0, 6)}
+                  </option>
+                )}
               {feed.data?.projects.map((item) => (
                 <option value={item.analysis_id} key={item.analysis_id}>
                   {item.name} · {item.analysis_id.slice(0, 6)}
