@@ -143,6 +143,7 @@ export default function Timeline() {
     queryFn: () =>
       api<RecentExperiment[]>(`/timeline/runs?limit=${recentLimit}`),
     refetchInterval: 15000,
+    placeholderData: (previous) => previous,
   });
 
   const resolution = useQuery({
