@@ -24,6 +24,8 @@ A [reported compatibility issue](https://github.com/Kludex/starlette/discussions
 
 Repository: [microsoft/license-checker-webpack-plugin](https://github.com/microsoft/license-checker-webpack-plugin) at commit `cdefc710375f3da72623fc110b1ed49b16dd7283`. We compared the saved snapshot with that commit's freshly cloned snapshot. The source imports the minimatch default function; the [minimatch 9 changelog](https://github.com/isaacs/minimatch/blob/main/changelog.md) describes named exports.
 
+In a subsequent live four-combination npm Sandbox matrix, minimatch 3.1.2 and 9.0.5 were combined with lodash 4.17.20 and 4.17.21; glob 7.1.6 and semver 6.3.0 were fixed. The same command ran the repository's original 24 tests followed by the focused probe below. All four combinations resolved; both minimatch 3 combinations passed, and both minimatch 9 combinations failed the probe. Nemotron proposed named-export import changes for both failing combinations; each passed the original suite and probe in an independent Sandbox branch. The probe is additional coverage, not an original repository test. These patches target minimatch 9 and have not been shown to preserve support for minimatch 3. Review them before use. Local run: `b0390d41e76e488582df080743b4cad9`.
+
 To reproduce the exact project source, clone the repository and check out that commit, then analyze its local directory in Oriclus. Tests ran in Node 22 Nebius Sandboxes:
 
 1. The repository's existing command `npm test -- --runInBand` passed its 24 tests with both minimatch 3.1.2 and 9.0.5. This test suite **did not detect** the incompatibility. Local run: `a78c1b1dabcb4548a3066022b58da67d`.

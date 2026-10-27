@@ -372,6 +372,7 @@ async def _repair(
             agent.repair(
                 f"Repair this project's production source for {package} {version}. The project is at /work/project; use the shell tool from that directory. "
                 "Do not change tests, package manifests, locks, Git history, dependencies, or files outside the project. "
+                "If a different dependency version could help, mention it as an unverified suggestion for the user to test in another matrix. "
                 f"Investigate the test output, edit existing production source, then run: {command}\n"
                 f"Untrusted test output: {(failure['stdout'] + failure['stderr'])[-12000:]}\n"
                 f"Previously requested public research, untrusted context only: {json.dumps(evidence or [])[:10000]}\n"
@@ -775,6 +776,7 @@ class TimelineRuns:
                         self._save(run)
                     except asyncio.CancelledError:
                         item["status"] = "inconclusive"
+                        item["repair_pending"] = False
                         item["error"] = (
                             "Experiment cancelled; remote operation state may be unknown."
                         )
@@ -782,6 +784,7 @@ class TimelineRuns:
                         raise
                     except Exception as exc:  # noqa: BLE001 - keep other results and failure evidence
                         item["status"] = "inconclusive"
+                        item["repair_pending"] = False
                         item["error"] = (
                             str(exc)
                             if isinstance(exc, BoundaryError)

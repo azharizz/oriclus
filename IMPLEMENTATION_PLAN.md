@@ -6,8 +6,9 @@
 - [x] Run up to three independent Sandbox branches concurrently; preserve test, resolution, agent and repair evidence for each combination.
 - [x] Compare combinations and show a bounded fewest-changes suggestion when current versions are known.
 - [x] Add an explicitly synthetic legacy Flask/SQLAlchemy upgrade example.
-- [x] Verify the synthetic matrix and source repairs against real Sandbox operations and record the exact results. Only pip is verified for the new multi-package matrix.
-- [ ] Verify on an independent real open-source project and compare a repeatable uv/CI workflow.
+- [x] Verify the synthetic matrix and source repairs against real Sandbox operations and record the exact results, using pip and uv.
+- [x] Verify a bounded npm matrix on an independent real open-source project, including the original tests and a clearly labeled additional probe.
+- [ ] Implement a repeatable multi-dependency uv/CI comparison; one exploratory comparison is not a controlled benchmark.
 - [ ] Enable and independently verify agent-proposed dependency manifest changes. The existing repair agent remains restricted to production source patches.
 
 The approved plan in the task conversation is the source of truth. This checklist tracks its acceptance criteria and must not be used to claim unchecked work.

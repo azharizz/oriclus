@@ -1589,6 +1589,19 @@ export default function Timeline({
                               passing tests or a verified repair.
                             </p>
                           )}
+                        {run.data.status === "completed" &&
+                          fewestChanges === null &&
+                          passingChoices.length > 0 && (
+                            <p className="tm-limit">
+                              {passingChoices.length} tested combination(s)
+                              passed directly or with a verified patch
+                              {run.data.goal
+                                ? ` for the ${run.data.goal.package} ${run.data.goal.version} goal`
+                                : ""}
+                              . Current versions are incomplete, so Oriclus
+                              cannot rank by number of changes.
+                            </p>
+                          )}
                         <div className="tm-comparison-scroll">
                           <table>
                             <thead>
