@@ -38,12 +38,16 @@ Two deliberately small examples are available:
 
 - `examples/timeline-python`: Flask, Werkzeug and MarkupSafe shown together; try MarkupSafe 2.0.1 to 2.1.5 with test command `python -m unittest -v`.
 - `examples/timeline-node`: minimatch 3.1.2 to 9.0.5, test command `npm test`.
+- `examples/httpx-starlette`: HTTPX 0.27.2 to 0.28.0 against Starlette 0.36.3, test command `python -m unittest -v`.
+- `examples/unrepairable`: a negative control where the failing test itself imports a removed API; the repair must not change tests.
+
+See [evaluation cases](docs/evaluation-cases.md) for a real JavaScript repository, a resolver conflict and actual results, including failures. The [demonstration script](docs/demo-script.md) separates recorded results from live execution. The [submission checklist](docs/submission-checklist.md) and [maintainer evaluation guide](docs/maintainer-evaluation.md) identify outstanding work without inventing user feedback.
 
 These examples demonstrate a breaking change; they are not claims about every application using those packages. Resolution and tests use registry access and Sandbox compute and can consume credits.
 
 ## What's New and metrics
 
-Open a project in Time Machine, then select **What’s New**. Choose a dependency and optionally a release, and request a search. Only the package name and selected version are sent to Tavily; package names can themselves be sensitive. Search results are public, external sources and may be stale, incomplete or unrelated. The configured model may summarize them; citations link to returned sources, and summaries are advisory. Previously requested research for the same dependency and version can be supplied to the repair agent. No source proves a test passed. Search and inference may consume credits.
+Analyze projects in Time Machine, then open **What’s New** to see a locally persisted feed grouped by distinct dependencies across saved project analyses. Filter by name or project, then choose **Refresh feed** to search the visible libraries once each; the progress indicator supports cancellation. You may also research a specific release. Only package names and selected versions are sent to Tavily; package names can themselves be sensitive. Search results are public, external sources and may be stale, incomplete or unrelated. The configured model may summarize them; citations link to returned sources, and summaries are advisory. Previously requested research for the same dependency and version can be supplied to the repair agent. No source proves a test passed. Search and inference may consume credits.
 
 The Metrics page measures completed runs divided by terminal runs, median seconds from run creation to first conclusive candidate result, and verified repairs divided by recorded repair attempts. Active runs are excluded from completion; historical runs lacking timing are excluded from timing. The numbers describe local recorded runs, not product-wide accuracy or a comparison to uv. See [who benefits](docs/who-benefits.md).
 

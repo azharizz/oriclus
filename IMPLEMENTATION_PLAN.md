@@ -38,3 +38,11 @@ Scope notes: What’s New is manually refreshed and uses search-result publicati
 - [x] Record the model's provisional plan, user-facing messages, requested tool actions and tool outcomes; surface plan failures without inventing a plan. Older records remain unchanged.
 - [x] Mark release-specific saved research on the main dependency timeline and show cited, advisory findings beside the selected release.
 - [x] Provide a repeatable uv-only versus Oriclus Sandbox comparison for supported pip requirements projects. Print trial results and denominators only; do not write a comparison file. Oriclus run records remain in local history.
+
+## Evidence and usability follow-up
+
+- [x] Add a persistent cross-project dependency news feed, deduplicate shared libraries, and refresh Tavily only through an explicit action with visible scope and progress.
+- [x] Improve the timeline with adaptive sub-year dates and accessible release hover/focus details.
+- [x] Add reproducible HTTPX/Starlette and real JavaScript-consumer cases, plus clear conflict and inconclusive cases; record actual test results and limits.
+- [ ] Prepare judge-facing setup, evidence and video/demo materials. Preserve the private repository until its visibility is explicitly changed.
+- [ ] Verify backend, frontend, real integrations and responsive views, then commit and push checkpoints.

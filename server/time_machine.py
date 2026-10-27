@@ -426,6 +426,7 @@ async def analyze(source: str, location: str) -> dict:
     root = TIMELINES / analysis_id
     destination = root / "source"
     root.mkdir(parents=True)
+    revision = None
     try:
         if source == "github":
             url = repository_url(location)
@@ -452,6 +453,26 @@ async def analyze(source: str, location: str) -> dict:
                 raise BoundaryError("Repository clone timed out.") from None
             if process.returncode:
                 raise BoundaryError("Could not clone the public GitHub repository.")
+            rev = await asyncio.create_subprocess_exec(
+                "git",
+                "-C",
+                str(clone),
+                "rev-parse",
+                "HEAD",
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.DEVNULL,
+            )
+            try:
+                raw, _ = await asyncio.wait_for(rev.communicate(), timeout=10)
+            except TimeoutError:
+                rev.kill()
+                await rev.wait()
+                raise BoundaryError(
+                    "Could not record the cloned Git revision."
+                ) from None
+            revision = raw.decode("ascii", errors="replace").strip()
+            if rev.returncode or not re.fullmatch(r"[0-9a-f]{40,64}", revision):
+                raise BoundaryError("Could not record the cloned Git revision.")
             await asyncio.to_thread(_snapshot, clone, destination)
             shutil.rmtree(clone)
         elif source == "local":
@@ -570,6 +591,7 @@ async def analyze(source: str, location: str) -> dict:
         result = {
             "id": analysis_id,
             "source": source,
+            "source_revision": revision,
             "project_name": Path(location.rstrip("/")).name.removesuffix(".git"),
             "project_key": hashlib.sha256(
                 f"{source}:{location.strip()}".encode()

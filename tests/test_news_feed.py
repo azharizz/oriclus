@@ -85,3 +85,37 @@ class FeedTests(unittest.IsolatedAsyncioTestCase):
             )
             with patch.object(time_machine, "TIMELINES", root):
                 self.assertEqual(len(news.feed()["groups"]), 2)
+
+
+class FeedRefreshTests(unittest.IsolatedAsyncioTestCase):
+    async def test_refresh_filters_work_and_can_cancel(self):
+        import asyncio
+
+        from server import app as api_module
+
+        started = asyncio.Event()
+
+        async def waiting(group):
+            self.assertEqual(group["name"], "demo")
+            started.set()
+            await asyncio.sleep(60)
+
+        groups = [
+            {"name": "demo", "projects": [{"analysis_id": "a" * 32}]},
+            {"name": "other", "projects": [{"analysis_id": "b" * 32}]},
+        ]
+        with (
+            patch.object(api_module, "TAVILY_KEY", "configured"),
+            patch.object(news, "feed", return_value={"groups": groups}),
+            patch.object(news, "refresh_group", side_effect=waiting),
+        ):
+            state = await api_module.refresh_news(
+                api_module.FeedRefreshRequest(analysis_id="a" * 32, query="dem")
+            )
+            self.assertEqual(state["total"], 1)
+            await started.wait()
+            task = api_module.feed_tasks[state["id"]]
+            await api_module.cancel_news_refresh(state["id"])
+            await asyncio.gather(task, return_exceptions=True)
+            self.assertEqual(state["status"], "cancelled")
+            api_module.feed_refreshes.pop(state["id"], None)

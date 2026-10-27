@@ -99,12 +99,13 @@ export default function News({
   const active = ["running", "cancelling"].includes(status.data?.status || "");
   useEffect(() => {
     if (
+      (status.data?.status === "running" && status.data.completed > 0) ||
       status.data?.status === "completed" ||
       status.data?.status === "cancelled" ||
       status.data?.status === "failed"
     )
       void feed.refetch();
-  }, [status.data?.status]);
+  }, [status.data?.status, status.data?.completed]);
   const groups = useMemo(
     () =>
       (feed.data?.groups || [])
@@ -116,6 +117,9 @@ export default function News({
         )
         .sort(
           (a, b) =>
+            (b.research[0]?.searched_at || "").localeCompare(
+              a.research[0]?.searched_at || "",
+            ) ||
             (b.latest?.date || "").localeCompare(a.latest?.date || "") ||
             a.name.localeCompare(b.name),
         ),
@@ -179,12 +183,17 @@ export default function News({
           disabled={busy || active || !groups.length}
           onClick={refresh}
         >
-          <RefreshCw size={15} /> Refresh feed
+          <RefreshCw size={15} /> Refresh {groups.length}{" "}
+          {groups.length === 1 ? "library" : "libraries"}
         </button>
       </header>
       <div className="feed-intro">
         <div>
-          <strong>{feed.data?.groups.length ?? 0} libraries</strong>
+          <strong>
+            {feed.isPending
+              ? "Loading libraries…"
+              : `${feed.data?.groups.length ?? 0} libraries`}
+          </strong>
           <span>
             {" "}
             across {feed.data?.projects.length ?? 0} saved project analyses

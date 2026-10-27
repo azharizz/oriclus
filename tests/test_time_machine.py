@@ -107,6 +107,53 @@ class AnalyzeTests(unittest.IsolatedAsyncioTestCase):
             self.assertIn("Flask 2.2.5", related["Jinja2"]["source"])
             self.assertIn("extra", related["optional"]["requirement"])
 
+    async def test_github_analysis_records_the_cloned_revision(self):
+        import subprocess
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            project = root / "repo"
+            project.mkdir()
+            (project / "package.json").write_text('{"dependencies":{"demo":"^1"}}')
+            subprocess.run(["git", "init", "-q", str(project)], check=True)
+            subprocess.run(
+                ["git", "-C", str(project), "add", "package.json"], check=True
+            )
+            subprocess.run(
+                [
+                    "git",
+                    "-C",
+                    str(project),
+                    "-c",
+                    "user.name=Test",
+                    "-c",
+                    "user.email=test@example.org",
+                    "commit",
+                    "-qm",
+                    "fixture",
+                ],
+                check=True,
+            )
+            revision = subprocess.check_output(
+                ["git", "-C", str(project), "rev-parse", "HEAD"], text=True
+            ).strip()
+
+            async def releases(_client, _package, _ecosystem, _limiter):
+                pass
+
+            with (
+                patch.object(time_machine, "TIMELINES", root / "history"),
+                patch.object(time_machine, "repository_url", return_value=str(project)),
+                patch.object(time_machine, "_releases", releases),
+            ):
+                result = await time_machine.analyze(
+                    "github", "https://github.com/example/demo"
+                )
+                self.assertEqual(result["source_revision"], revision)
+                self.assertEqual(
+                    time_machine.get_analysis(result["id"])["source_revision"], revision
+                )
+
     async def test_analysis_saves_local_project_without_changing_it(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

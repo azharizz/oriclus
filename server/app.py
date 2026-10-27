@@ -409,7 +409,10 @@ async def refresh_news(spec: FeedRefreshRequest):
     if not TAVILY_KEY:
         raise HTTPException(400, "Add TAVILY_API_KEY to .env and restart the service.")
     if not groups:
-        raise HTTPException(400, "Analyze a project before refreshing the feed.")
+        raise HTTPException(
+            400,
+            "No libraries match the current filters. Analyze a project or change the filters.",
+        )
     refresh_id = uuid4().hex
     state = {
         "id": refresh_id,

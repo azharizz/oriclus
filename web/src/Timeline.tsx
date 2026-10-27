@@ -26,6 +26,8 @@ type Dependency = {
 type Analysis = {
   id: string;
   source: string;
+  project_name?: string;
+  source_revision?: string | null;
   ecosystem: string;
   manager: string;
   packages: Dependency[];
@@ -635,10 +637,22 @@ export default function Timeline({
               <span className="tm-step">02</span>
               <h2>Release timeline</h2>
               <p>
+                {analysis.project_name && (
+                  <>
+                    {analysis.project_name} <span>·</span>{" "}
+                  </>
+                )}
                 {analysis.ecosystem} <span>·</span> {analysis.manager}{" "}
                 <span>·</span> {packages.filter((item) => item.direct).length}{" "}
                 direct · {packages.filter((item) => !item.direct).length}{" "}
                 related
+                {analysis.source_revision && (
+                  <>
+                    {" "}
+                    <span>·</span> commit{" "}
+                    <code>{analysis.source_revision.slice(0, 12)}</code>
+                  </>
+                )}
               </p>
             </div>
             <div className="tm-tools">

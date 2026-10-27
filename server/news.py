@@ -185,7 +185,11 @@ def feed() -> dict:
                     if release.get("date") and (
                         not group["latest"] or release["date"] > group["latest"]["date"]
                     ):
-                        group["latest"] = {**release, "analysis_id": analysis_id, "package": package["name"]}
+                        group["latest"] = {
+                            **release,
+                            "analysis_id": analysis_id,
+                            "package": package["name"],
+                        }
                 for record in records:
                     if package_key(
                         analysis["ecosystem"], record.get("package", "")

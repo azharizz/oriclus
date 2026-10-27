@@ -1,0 +1,40 @@
+# Reproducible evaluation cases
+
+These observations are scoped to the specified project snapshot, commands, dependency versions and Nebius Sandbox environment. Passing tests do not guarantee compatibility. Source and test output are sent to Nebius as described in the README. Run IDs refer to local evidence; they are not included in the repository.
+
+## HTTPX and Starlette
+
+A [reported compatibility issue](https://github.com/Kludex/starlette/discussions/2770) describes Starlette 0.36.3's `TestClient` failing after HTTPX 0.28.0 removed the `app` argument. `examples/httpx-starlette` is an original, minimal reproduction, not the reporter's repository.
+
+- Command: `python -m unittest -v`.
+- Observed in Sandbox: baseline passed; HTTPX 0.27.2 passed; HTTPX 0.28.0 failed with `Client.__init__() got an unexpected keyword argument 'app'`.
+- Repair result: **rejected**, because no permitted production-source patch was produced. An upgrade or pin may be a reasonable option but the agent is not allowed to alter dependency manifests.
+- Local run: `118c6517968f44308f7731ba67f34328`.
+- Sources: [HTTPX 0.28.0 release](https://github.com/encode/httpx/releases/tag/0.28.0), [Starlette release notes](https://www.starlette.io/release-notes/#0372-march-5-2024).
+
+## Real JavaScript consumer: two tests, different conclusions
+
+Repository: [microsoft/license-checker-webpack-plugin](https://github.com/microsoft/license-checker-webpack-plugin) at commit `cdefc710375f3da72623fc110b1ed49b16dd7283`. We compared the saved snapshot with that commit's freshly cloned snapshot. The source imports the minimatch default function; the [minimatch 9 changelog](https://github.com/isaacs/minimatch/blob/main/changelog.md) describes named exports.
+
+To reproduce the exact project source, clone the repository and check out that commit, then analyze its local directory in Oriclus. Tests ran in Node 22 Nebius Sandboxes:
+
+1. The repository's existing command `npm test -- --runInBand` passed its 24 tests with both minimatch 3.1.2 and 9.0.5. This test suite **did not detect** the incompatibility. Local run: `a78c1b1dabcb4548a3066022b58da67d`.
+2. A separate focused probe of the actual repository's exported `ignoreLicenses` function passed on 3.1.2 and failed on 9.0.5 with `TypeError: satisfiesGlob is not a function`. The proposed repair failed independent verification. This probe is **not part of the repository's original tests**. Local run: `f7d9c149a8054736acd60f7f66506082`.
+
+Focused command:
+
+```sh
+node -e 'const {ignoreLicenses}=require("./src/licenseUtils"); const out=ignoreLicenses({alpha:{version:"1.0.0"}},["alpha"]); if (Object.keys(out).length) process.exit(1)'
+```
+
+## Resolver conflict
+
+Analyze `examples/timeline-python`, then select Werkzeug 2.2.3. The project's MarkupSafe 2.0.1 pin conflicts with Werkzeug's requirement. A real native resolver reported a conflict, and Nemotron returned an advisory explanation. This is a resolution result, not a test outcome; other package combinations were not inferred.
+
+## Negative control: repair rejected
+
+Analyze `examples/unrepairable`, select MarkupSafe 2.0.1 and 2.1.5, and run `python -m unittest -v`. The test directly imports the removed API, while the agent is not allowed to change tests or dependency requirements. Observed baseline and 2.0.1 passed, 2.1.5 failed, and the repair was rejected. Local run: `ed0abd39f1704c0ab2dae6a1c17383d1`.
+
+## Interpretation and feedback
+
+These are bounded examples, not an estimate of overall repair accuracy or time saved. The real repository's passing original test suite and failing focused probe illustrate that results only cover the selected test. No independent maintainer has yet evaluated this workflow; do not present feedback or productivity claims as measured. A prospective maintainer can be asked which update they are investigating, what they would normally do, and whether the saved evidence changed their decision.
