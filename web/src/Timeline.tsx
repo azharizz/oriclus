@@ -48,6 +48,9 @@ type Resolution = {
 };
 type Result = {
   version?: string;
+  combination?: Record<string, string>;
+  resolution_status?: "succeeded" | "failed_or_inconclusive";
+  repair_pending?: boolean;
   status?: string;
   exit_code?: number | null;
   stdout?: string;
@@ -75,6 +78,7 @@ type Experiment = {
   id: string;
   status: string;
   package: string;
+  goal?: { package: string; version: string } | null;
   test_command: string;
   baseline?: Result | null;
   results: Result[];
@@ -141,6 +145,9 @@ function resultLabel(status: string) {
         running: "Running",
         completed: "Completed",
         queued: "Queued",
+        verified: "Repair verified",
+        rejected: "Repair rejected",
+        unavailable: "Repair unavailable",
       } as Record<string, string>
     )[status] || status
   );
@@ -170,7 +177,8 @@ export default function Timeline({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [selection, setSelection] = useState<Selection | null>(null);
-  const [queued, setQueued] = useState<string[]>([]);
+  const [queued, setQueued] = useState<Selection[]>([]);
+  const [goalChoice, setGoalChoice] = useState("");
   const [showTransitive, setShowTransitive] = useState(true);
   const [zoom, setZoom] = useState(1);
   const [tip, setTip] = useState<{
@@ -340,6 +348,44 @@ export default function Timeline({
       : `Q${month / 3 + 1}`;
   const visible = packages.filter((pkg) => pkg.direct || showTransitive);
   const selectedPackage = packages.find((pkg) => pkg.name === selection?.name);
+  const selections = queued.reduce<Record<string, string[]>>((groups, item) => {
+    (groups[item.name] ||= []).push(item.version);
+    return groups;
+  }, {});
+  const combinationCount = Object.values(selections).reduce(
+    (count, versions) => count * versions.length,
+    queued.length ? 1 : 0,
+  );
+  const passingChoices = (run.data?.results || [])
+    .filter(
+      (result) =>
+        result.combination &&
+        (result.status === "passed" || result.repair?.status === "verified") &&
+        (!run.data?.goal ||
+          result.combination[run.data.goal.package] === run.data.goal.version),
+    )
+    .map((result) => {
+      const entries = Object.entries(result.combination!);
+      const currents = entries.map(([name]) => {
+        const pkg = packages.find((item) => item.name === name);
+        return (
+          pkg?.current ||
+          pkg?.requirement.match(/^==([A-Za-z0-9][A-Za-z0-9._+!-]*)$/)?.[1]
+        );
+      });
+      return {
+        result,
+        changes: currents.every(Boolean)
+          ? entries.filter(([, version], index) => currents[index] !== version)
+              .length
+          : null,
+      };
+    });
+  const fewestChanges =
+    passingChoices.length &&
+    passingChoices.every((item) => item.changes !== null)
+      ? Math.min(...passingChoices.map((item) => item.changes!))
+      : null;
   const undated =
     selectedPackage?.releases.filter(
       (release) => dateValue(release.date) === null,
@@ -352,6 +398,7 @@ export default function Timeline({
     setAnalysis(null);
     setSelection(null);
     setQueued([]);
+    setGoalChoice("");
     setRunId(null);
     setRunError("");
     try {
@@ -378,10 +425,6 @@ export default function Timeline({
   }
 
   function choose(name: string, version: string) {
-    if (selection?.name !== name) {
-      setQueued([]);
-      if (run.data?.package !== name) setRunId(null);
-    }
     setSelection({ name, version });
     const release = packages
       .find((pkg) => pkg.name === name)
@@ -399,25 +442,45 @@ export default function Timeline({
   }
 
   function toggleVersion(version: string) {
+    if (!selection) return;
     setQueued((current) =>
-      current.includes(version)
-        ? current.filter((item) => item !== version)
-        : current.length < 5
-          ? [...current, version]
+      current.some(
+        (item) => item.name === selection.name && item.version === version,
+      )
+        ? current.filter(
+            (item) => item.name !== selection.name || item.version !== version,
+          )
+        : current.filter((item) => item.name === selection.name).length < 5 &&
+            (current.some((item) => item.name === selection.name) ||
+              new Set(current.map((item) => item.name)).size < 5)
+          ? [...current, { name: selection.name, version }]
           : current,
     );
   }
 
   async function startRun() {
-    if (!analysis || !selection || !queued.length || !testCommand.trim())
+    if (
+      !analysis ||
+      !selection ||
+      !queued.length ||
+      combinationCount > 12 ||
+      !testCommand.trim()
+    )
       return;
     setSubmitting(true);
     setRunError("");
     try {
       const created = await api<Experiment>("/timeline/runs", {
         analysis_id: analysis.id,
-        package: selection.name,
-        versions: queued,
+        package: queued[0].name,
+        versions: selections[queued[0].name],
+        selections,
+        goal: queued.find((item) => JSON.stringify(item) === goalChoice)
+          ? {
+              package: JSON.parse(goalChoice).name,
+              version: JSON.parse(goalChoice).version,
+            }
+          : null,
         test_command: testCommand.trim(),
       });
       setRunId(created.id);
@@ -849,7 +912,12 @@ export default function Timeline({
                             JSON.stringify([pkg.name, release.version]),
                           );
                           const tested =
-                            run.data?.package === pkg.name
+                            run.data?.package === pkg.name &&
+                            !run.data?.results?.some(
+                              (result) =>
+                                Object.keys(result.combination || {}).length >
+                                1,
+                            )
                               ? run.data?.results?.find(
                                   (result) =>
                                     result.version === release.version,
@@ -1149,35 +1217,93 @@ export default function Timeline({
                       SANDBOX EXPERIMENT <span>OPTIONAL</span>
                     </div>
                     <p>
-                      Choose up to five releases of {selection.name} and run the
-                      same test command.
+                      Add releases from up to five dependencies. Every selected
+                      combination runs the same tests, with up to three Sandbox
+                      branches at once.
                     </p>
                     <button
                       type="button"
                       className="tm-add-version"
                       onClick={() => toggleVersion(selection.version)}
                       disabled={
-                        !queued.includes(selection.version) &&
-                        queued.length >= 5
+                        !queued.some(
+                          (item) =>
+                            item.name === selection.name &&
+                            item.version === selection.version,
+                        ) &&
+                        (queued.filter((item) => item.name === selection.name)
+                          .length >= 5 ||
+                          (!queued.some(
+                            (item) => item.name === selection.name,
+                          ) &&
+                            new Set(queued.map((item) => item.name)).size >= 5))
                       }
                     >
-                      {queued.includes(selection.version)
+                      {queued.some(
+                        (item) =>
+                          item.name === selection.name &&
+                          item.version === selection.version,
+                      )
                         ? "Remove this version"
                         : "Add this version to test"}
                     </button>
                     {queued.length > 0 && (
                       <div className="tm-queued">
-                        {queued.map((version) => (
+                        {queued.map((item) => (
                           <button
-                            key={version}
+                            key={`${item.name}-${item.version}`}
                             type="button"
-                            aria-label={`Remove version ${version} from experiment`}
-                            onClick={() => toggleVersion(version)}
+                            aria-label={`Remove ${item.name} ${item.version} from experiment`}
+                            onClick={() =>
+                              setQueued((current) =>
+                                current.filter(
+                                  (entry) =>
+                                    entry.name !== item.name ||
+                                    entry.version !== item.version,
+                                ),
+                              )
+                            }
                           >
-                            {version} <span>×</span>
+                            {item.name} {item.version} <span>×</span>
                           </button>
                         ))}
                       </div>
+                    )}
+                    {!!queued.length && (
+                      <p className="tm-limit" role="status">
+                        {combinationCount} combinations selected; maximum 12.{" "}
+                        {combinationCount > 12 &&
+                          "Remove releases to continue."}
+                      </p>
+                    )}
+                    {!!queued.length && (
+                      <label>
+                        Upgrade goal (optional)
+                        <select
+                          value={
+                            queued.some(
+                              (item) => JSON.stringify(item) === goalChoice,
+                            )
+                              ? goalChoice
+                              : ""
+                          }
+                          onChange={(event) =>
+                            setGoalChoice(event.target.value)
+                          }
+                        >
+                          <option value="">
+                            Compare every selected combination
+                          </option>
+                          {queued.map((item) => (
+                            <option
+                              key={`${item.name}-${item.version}`}
+                              value={JSON.stringify(item)}
+                            >
+                              Require {item.name} {item.version}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
                     )}
                     <label>
                       Test command
@@ -1192,6 +1318,7 @@ export default function Timeline({
                       className="primary tm-run"
                       disabled={
                         !queued.length ||
+                        combinationCount > 12 ||
                         !testCommand.trim() ||
                         submitting ||
                         !!(
@@ -1334,8 +1461,11 @@ export default function Timeline({
                       </details>
                     )}
                     {!!run.data.agent_decisions?.length && (
-                      <details className="tm-agent-history" open>
-                        <summary>Agent plan and decisions</summary>
+                      <details className="tm-agent-history">
+                        <summary>
+                          Agent plan and decisions (
+                          {run.data.agent_decisions.length})
+                        </summary>
                         <p className="tm-limit">
                           Model-authored plans are provisional. Tool actions and
                           exit codes are recorded observations, not proof of a
@@ -1407,10 +1537,115 @@ export default function Timeline({
                     {run.data.baseline && (
                       <ResultCard title="Baseline" result={run.data.baseline} />
                     )}
+                    {run.data.results.some(
+                      (result) =>
+                        result.combination &&
+                        Object.keys(result.combination).length > 1,
+                    ) && (
+                      <div className="tm-comparison">
+                        <h3>Combination results</h3>
+                        <p className="tm-limit">
+                          Each row is one tested set. A passing result applies
+                          only to the selected command and environment.
+                        </p>
+                        {fewestChanges !== null &&
+                          run.data.status === "completed" && (
+                            <p className="tm-limit">
+                              Suggested for fewest changes among selected
+                              dependencies, compared with known current versions
+                              or exact manifest pins:{" "}
+                              {passingChoices
+                                .filter(
+                                  (item) => item.changes === fewestChanges,
+                                )
+                                .map(
+                                  (item) =>
+                                    Object.entries(item.result.combination!)
+                                      .map(
+                                        ([name, version]) =>
+                                          `${name} ${version}`,
+                                      )
+                                      .join(" · ") +
+                                    (item.result.repair?.status ===
+                                      "verified" &&
+                                    item.result.status !== "passed"
+                                      ? " (requires verified patch)"
+                                      : ""),
+                                )
+                                .join("; ")}
+                              . This ranks only the selected, passing
+                              combinations
+                              {run.data.goal
+                                ? ` meeting the ${run.data.goal.package} ${run.data.goal.version} goal`
+                                : ""}
+                              .
+                            </p>
+                          )}
+                        {run.data.status === "completed" &&
+                          run.data.goal &&
+                          passingChoices.length === 0 && (
+                            <p className="tm-limit">
+                              No tested combination met the upgrade goal with
+                              passing tests or a verified repair.
+                            </p>
+                          )}
+                        <div className="tm-comparison-scroll">
+                          <table>
+                            <thead>
+                              <tr>
+                                <th scope="col">Dependency versions</th>
+                                <th scope="col">Resolution</th>
+                                <th scope="col">Tests</th>
+                                <th scope="col">Repair</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {run.data.results.map((result, index) => (
+                                <tr key={index}>
+                                  <td>
+                                    {Object.entries(result.combination || {})
+                                      .map(
+                                        ([name, version]) =>
+                                          `${name} ${version}`,
+                                      )
+                                      .join(" · ")}
+                                  </td>
+                                  <td>
+                                    {result.resolution_status === "succeeded"
+                                      ? "Succeeded"
+                                      : result.resolution_status
+                                        ? "Failed or inconclusive"
+                                        : "Pending"}
+                                  </td>
+                                  <td>
+                                    {resultLabel(
+                                      result.status || "inconclusive",
+                                    )}
+                                  </td>
+                                  <td>
+                                    {result.repair_pending
+                                      ? "Investigating"
+                                      : result.repair
+                                        ? resultLabel(result.repair.status)
+                                        : "Not attempted"}
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+                    )}
                     {run.data.results?.map((result, index) => (
                       <ResultCard
                         key={`${result.version}-${index}`}
-                        title={result.version || "Candidate"}
+                        title={
+                          result.combination
+                            ? Object.entries(result.combination)
+                                .map(([name, version]) => `${name} ${version}`)
+                                .join(" · ")
+                            : result.version || "Candidate"
+                        }
                         result={result}
                       />
                     ))}

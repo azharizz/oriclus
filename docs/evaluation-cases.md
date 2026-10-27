@@ -1,5 +1,13 @@
 # Reproducible evaluation cases
 
+## Synthetic five-dependency matrix
+
+Analyze `examples/legacy-matrix`; add Flask 2.2.5 and 2.3.3, SQLAlchemy 1.4.54 and 2.0.29, Werkzeug 2.3.8, Jinja2 3.1.2, and MarkupSafe 2.1.5. Run `python -m unittest -v`. These selections form four combinations. In a real Nebius Sandbox run, baseline passed, all four combinations resolved with pip, and the unchanged Flask 2.2.5 / SQLAlchemy 1.4.54 combination passed. The three combinations containing Flask 2.3.3, SQLAlchemy 2.0.29, or both failed the original test. Nemotron proposed a source patch for each failing combination; each patch passed the original test in a fresh candidate branch. The original failures remain failures in the results.
+
+This is a deliberately constructed single-test reproducer, not a real production project or a statistical measure of repair reliability. A passing test does not establish thread safety, behavior under concurrent requests, production correctness, or support for other versions. Review every proposed patch before use. The Flask-only patch uses a process-global initialization flag and needs particular concurrency review. Results are local to the creator's `.oriclus/` history and must be rerun with Sandbox credentials by other users.
+
+The same application was also tested as a uv-managed temporary project with the five baseline requirements in `pyproject.toml` and a `uv.lock` file. With Flask 2.2.5 and 2.3.3, and SQLAlchemy 1.4.54, Werkzeug 2.3.8, Jinja2 3.1.2, and MarkupSafe 2.1.5 fixed, both candidates resolved: the first passed, the second failed, and a Nemotron source patch passed independent verification. This was another small synthetic case, not proof that all uv project configurations work.
+
 These observations are scoped to the specified project snapshot, commands, dependency versions and Nebius Sandbox environment. Passing tests do not guarantee compatibility. Source and test output are sent to Nebius as described in the README. Run IDs refer to local evidence; they are not included in the repository.
 
 ## HTTPX and Starlette

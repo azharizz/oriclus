@@ -1,5 +1,15 @@
 # Dependency Time Machine implementation checklist
 
+## Multi-dependency matrix follow-up
+
+- [x] Select releases across up to five dependencies and build at most 12 combinations.
+- [x] Run up to three independent Sandbox branches concurrently; preserve test, resolution, agent and repair evidence for each combination.
+- [x] Compare combinations and show a bounded fewest-changes suggestion when current versions are known.
+- [x] Add an explicitly synthetic legacy Flask/SQLAlchemy upgrade example.
+- [x] Verify the synthetic matrix and source repairs against real Sandbox operations and record the exact results. Only pip is verified for the new multi-package matrix.
+- [ ] Verify on an independent real open-source project and compare a repeatable uv/CI workflow.
+- [ ] Enable and independently verify agent-proposed dependency manifest changes. The existing repair agent remains restricted to production source patches.
+
 The approved plan in the task conversation is the source of truth. This checklist tracks its acceptance criteria and must not be used to claim unchecked work.
 
 - [x] Import the original application without secrets, preserve both licenses and push a checkpoint. Preserve local Docker history and artifacts outside Git.

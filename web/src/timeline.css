@@ -1,6 +1,27 @@
 .time-machine {
   max-width: 1800px;
 }
+.tm-comparison {
+  margin: 20px 0;
+}
+.tm-comparison-scroll {
+  overflow-x: auto;
+}
+.tm-comparison table {
+  width: 100%;
+  border-collapse: collapse;
+  text-align: left;
+}
+.tm-comparison th,
+.tm-comparison td {
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--line);
+  vertical-align: top;
+}
+.tm-comparison th {
+  color: var(--muted);
+  font-weight: 500;
+}
 .tm-heading {
   display: flex;
   justify-content: space-between;
@@ -58,6 +79,7 @@
 .tm-source-fields select,
 .tm-source-fields input,
 .tm-experiment input,
+.tm-experiment select,
 .tm-tools select {
   min-height: 40px;
   padding: 9px 12px;
