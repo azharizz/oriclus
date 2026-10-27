@@ -12,6 +12,7 @@ class Source(BaseModel):
     title: str
     url: str
     content: str
+    published_date: str | None = None
 
     @field_validator("url")
     @classmethod
@@ -52,6 +53,7 @@ async def search(query: str) -> dict:
                     "include_answer": False,
                     "include_raw_content": False,
                     "include_usage": True,
+                    "include_published_date": True,
                 },
             )
     except httpx.TransportError as error:

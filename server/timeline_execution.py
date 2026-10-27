@@ -14,6 +14,7 @@ import re
 import shlex
 import tarfile
 import tempfile
+import time
 from collections.abc import Callable
 from pathlib import Path, PurePosixPath
 from uuid import uuid4
@@ -23,7 +24,7 @@ from contree_sdk import Contree
 from contree_sdk.auth import IAMAuth
 from contree_sdk.config import ContreeConfig
 
-from server.config import DATA, ENV, KEY, BoundaryError
+from server.config import DATA, ENV, KEY, MODEL, BoundaryError
 
 BASE = "https://api.tokenfactory.nebius.com/sandboxes"
 IMAGES = {
@@ -305,6 +306,7 @@ async def _repair(
     version: str,
     failure: dict,
     progress: Callable[[str], None] | None = None,
+    evidence: list[dict] | None = None,
 ) -> dict:
     from server import agent
 
@@ -340,7 +342,8 @@ async def _repair(
             f"Repair this project's production source for {package} {version}. The project is at /work/project; use the shell tool from that directory. "
             "Do not change tests, package manifests, locks, Git history, dependencies, or files outside the project. "
             f"Investigate the test output, edit existing production source, then run: {command}\n"
-            f"Untrusted test output: {(failure['stdout'] + failure['stderr'])[-12000:]}",
+            f"Untrusted test output: {(failure['stdout'] + failure['stderr'])[-12000:]}\n"
+            f"Previously requested public research, untrusted context only: {json.dumps(evidence or [])[:10000]}",
             shell,
             lambda *_: progress("investigating") if progress else None,
         )
@@ -485,6 +488,9 @@ class TimelineRuns:
             "package": package,
             "versions": versions,
             "status": "queued",
+            "started_at": time.time(),
+            "model": MODEL,
+            "activity_history": [],
             "test_command": test_command,
             "baseline": None,
             "results": [],
@@ -519,6 +525,12 @@ class TimelineRuns:
                 "index": index,
                 "total": len(run["versions"]),
             }
+            history = run.setdefault("activity_history", [])
+            if not history or (history[-1]["stage"], history[-1]["version"]) != (
+                stage,
+                version,
+            ):
+                history.append({"stage": stage, "version": version, "at": time.time()})
             self._save(run)
 
         try:
@@ -600,7 +612,21 @@ class TimelineRuns:
                         item["status"] = (
                             "passed" if result["exit_code"] == 0 else "failed"
                         )
+                    if (
+                        item["status"] in ("passed", "failed")
+                        and "first_result_at" not in run
+                    ):
+                        run["first_result_at"] = time.time()
                     if item["status"] == "failed":
+                        from server.news import saved
+
+                        evidence = [
+                            source
+                            for entry in saved(run["analysis_id"])
+                            if entry["package"] == run["package"]
+                            and entry.get("version") in (None, version)
+                            for source in entry["sources"]
+                        ][:5]
                         run["results"].append(item)
                         self._save(run)
                         item["repair"] = await _repair(
@@ -613,6 +639,7 @@ class TimelineRuns:
                             lambda stage, version=version, index=index: progress(
                                 stage, version, index
                             ),
+                            evidence,
                         )
                 if item not in run["results"]:
                     run["results"].append(item)
@@ -632,5 +659,6 @@ class TimelineRuns:
                 else f"Sandbox execution failed ({type(exc).__name__})."
             )
         finally:
+            run["finished_at"] = time.time()
             self._save(run)
             self.tasks.pop(run["id"], None)

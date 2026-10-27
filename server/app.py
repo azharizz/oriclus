@@ -14,6 +14,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
+from server import metrics, news
 from server.config import (
     BASE_URL,
     DATA,
@@ -33,7 +34,7 @@ from server.store import Store
 from server.time_machine import analyze as analyze_timeline
 from server.time_machine import get_analysis
 from server.time_machine import resolve as resolve_timeline
-from server.timeline_execution import TimelineRuns
+from server.timeline_execution import RUNS, TimelineRuns
 from server.workflow import Rehearsal
 
 jobs: dict[str, asyncio.Task] = {}
@@ -366,6 +367,29 @@ async def timeline_analyze(spec: TimelineRequest):
         raise HTTPException(400, str(error)) from error
 
 
+class ResearchRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    analysis_id: str = Field(pattern="^[0-9a-f]{32}$")
+    package: str = Field(min_length=1, max_length=214)
+    version: str = Field(default="", max_length=128)
+
+
+@app.get("/api/timeline/research/{analysis_id}")
+async def timeline_research_history(analysis_id: str):
+    try:
+        return news.saved(analysis_id)
+    except (BoundaryError, ValueError, OSError) as error:
+        raise HTTPException(400, str(error)) from error
+
+
+@app.post("/api/timeline/research")
+async def timeline_research(spec: ResearchRequest):
+    try:
+        return await news.investigate(spec.analysis_id, spec.package, spec.version)
+    except (BoundaryError, ValueError, OSError) as error:
+        raise HTTPException(400, str(error)) from error
+
+
 @app.post("/api/timeline/resolve")
 async def timeline_resolve(spec: TimelineSelection):
     if spec.progress_id:
@@ -429,6 +453,11 @@ async def timeline_analysis(analysis_id: str):
         return get_analysis(analysis_id)
     except (BoundaryError, OSError, ValueError) as error:
         raise HTTPException(404, "Timeline analysis not found.") from error
+
+
+@app.get("/api/timeline/metrics")
+async def timeline_metrics():
+    return metrics.calculate(RUNS)
 
 
 @app.get("/api/timeline/runs")
