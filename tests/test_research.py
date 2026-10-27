@@ -151,8 +151,15 @@ class ResearchBoundaries(unittest.IsolatedAsyncioTestCase):
         with (
             patch.object(config, "KEY", "nebius-unit-secret"),
             patch.object(config, "TAVILY_KEY", "tavily-unit-secret"),
+            patch.object(
+                config, "ENV", {"NEBIUS_SANDBOX_API_KEY": "sandbox-unit-secret"}
+            ),
         ):
             self.assertEqual(
-                config.safe_error(Exception("nebius-unit-secret tavily-unit-secret")),
-                "[redacted] [redacted]",
+                config.safe_error(
+                    Exception(
+                        "nebius-unit-secret tavily-unit-secret sandbox-unit-secret"
+                    )
+                ),
+                "[redacted] [redacted] [redacted]",
             )

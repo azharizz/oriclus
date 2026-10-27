@@ -1,5 +1,5 @@
 const assert = require('node:assert/strict');
-const matches = require('minimatch');
+const matches = require('./app.cjs');
 
 assert.equal(matches('report.txt', '*.txt'), true);
 assert.equal(matches('report.csv', '*.txt'), false);

@@ -10,6 +10,7 @@ from urllib.parse import urlsplit
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel, ConfigDict, Field
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from server.config import (
@@ -27,16 +28,20 @@ from server.config import (
 from server.planning import Planner
 from server.sandbox import cleanup, command
 from server.store import Store
+from server.time_machine import analyze as analyze_timeline
+from server.time_machine import resolve as resolve_timeline
+from server.timeline_execution import TimelineRuns
 from server.workflow import Rehearsal
 
 jobs: dict[str, asyncio.Task] = {}
 submission_lock = asyncio.Lock()
 store: Store
+timeline_runs: TimelineRuns
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global store
+    global store, timeline_runs
     DATA.mkdir(exist_ok=True)
     with (DATA / "service.lock").open("w") as lock:
         try:
@@ -46,6 +51,8 @@ async def lifespan(app: FastAPI):
                 "Oriclus is already running. Use one service process per workspace."
             ) from error
         store = Store()
+        timeline_runs = TimelineRuns()
+        timeline_runs.interrupt_unfinished()
         store.interrupt_unfinished()
         # Allow history/UI access without Docker. POST /runs checks readiness.
         with suppress(BoundaryError, OSError):
@@ -55,6 +62,10 @@ async def lifespan(app: FastAPI):
             if not task.cancelling():
                 task.cancel()
         await asyncio.gather(*jobs.values(), return_exceptions=True)
+        timeline_tasks = list(timeline_runs.tasks.values())
+        for task in timeline_tasks:
+            task.cancel()
+        await asyncio.gather(*timeline_tasks, return_exceptions=True)
         store.db.close()
 
 
@@ -311,6 +322,71 @@ async def export(run_id: str):
             "Content-Disposition": f'attachment; filename="oriclus-{run["id"][:8]}.json"'
         },
     )
+
+
+class TimelineRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    source: str = Field(pattern="^(local|github)$")
+    location: str = Field(min_length=1, max_length=4096)
+
+
+class TimelineSelection(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    id: str = Field(pattern="^[0-9a-f]{32}$")
+    package: str = Field(min_length=1, max_length=214)
+    version: str = Field(min_length=1, max_length=128)
+
+
+class TimelineRunRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    analysis_id: str = Field(pattern="^[0-9a-f]{32}$")
+    package: str = Field(min_length=1, max_length=214)
+    versions: list[str] = Field(min_length=1, max_length=5)
+    test_command: str = Field(min_length=1, max_length=8000)
+
+
+@app.post("/api/timeline/analyze")
+async def timeline_analyze(spec: TimelineRequest):
+    try:
+        return await analyze_timeline(spec.source, spec.location)
+    except (BoundaryError, ValueError, OSError) as error:
+        raise HTTPException(400, str(error)) from error
+
+
+@app.post("/api/timeline/resolve")
+async def timeline_resolve(spec: TimelineSelection):
+    try:
+        return await resolve_timeline(spec.id, spec.package, spec.version)
+    except (BoundaryError, ValueError) as error:
+        raise HTTPException(400, str(error)) from error
+
+
+@app.post("/api/timeline/runs", status_code=202)
+async def timeline_start(spec: TimelineRunRequest):
+    try:
+        return await timeline_runs.start(
+            spec.analysis_id, spec.package, spec.versions, spec.test_command
+        )
+    except (BoundaryError, ValueError) as error:
+        raise HTTPException(400, str(error)) from error
+
+
+@app.get("/api/timeline/runs/{run_id}")
+async def timeline_get(run_id: str):
+    run = timeline_runs.get(run_id)
+    if not run:
+        raise HTTPException(404, "Timeline run not found.")
+    return run
+
+
+@app.post("/api/timeline/runs/{run_id}/cancel", status_code=202)
+async def timeline_cancel(run_id: str):
+    run = await timeline_runs.cancel(run_id)
+    if not run:
+        raise HTTPException(404, "Timeline run not found.")
+    if run["status"] != "cancelling":
+        raise HTTPException(409, "Timeline run is no longer executing.")
+    return run
 
 
 if (ROOT / "dist").is_dir():

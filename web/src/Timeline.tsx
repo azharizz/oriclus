@@ -35,6 +35,7 @@ type Resolution = {
   selected: Record<string, string>;
   requirements: Record<string, string>;
   message: string;
+  packages?: Dependency[];
 };
 type Result = {
   version?: string;
@@ -147,7 +148,16 @@ export default function Timeline() {
     retry: false,
   });
 
-  const packages = analysis?.packages || [];
+  const packages = useMemo(() => {
+    const initial = analysis?.packages || [];
+    const known = new Set(initial.map((item) => item.name.toLowerCase()));
+    return [
+      ...initial,
+      ...(resolution.data?.packages || []).filter(
+        (item) => !known.has(item.name.toLowerCase()),
+      ),
+    ];
+  }, [analysis, resolution.data]);
   const dates = useMemo(
     () =>
       packages.flatMap((pkg) =>

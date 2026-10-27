@@ -26,7 +26,7 @@ class BoundaryError(RuntimeError):
 
 def safe_error(error: Exception) -> str:
     text = str(error)
-    for key in (KEY, TAVILY_KEY):
+    for key in (KEY, TAVILY_KEY, ENV.get("NEBIUS_SANDBOX_API_KEY")):
         if key:
             text = text.replace(key, "[redacted]")
     return text
