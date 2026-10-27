@@ -4,7 +4,7 @@ Explore dependency release histories, resolve candidate upgrades, and test them 
 
 ## Get started
 
-Requirements: Python 3.12+, [uv](https://docs.astral.sh/uv/), Node.js 22.12+, npm, and access to Nebius Token Factory Sandboxes. Docker is needed only for the older release rehearsal workflow.
+Requirements: Python 3.12+, [uv](https://docs.astral.sh/uv/), Node.js 22.12+, npm, and access to Nebius Token Factory Sandboxes. Existing Docker history remains available as read-only records.
 
 ```sh
 uv sync --frozen
@@ -18,7 +18,7 @@ Set the following in `.env`, without committing it:
 - `NEBIUS_API_KEY`, `NEBIUS_BASE_URL`, and `NEBIUS_MODEL`: Token Factory inference credentials, endpoint and NVIDIA model for explanations and repairs.
 - `NEBIUS_PROJECT_ID`: project with Sandboxes access.
 - `NEBIUS_SANDBOX_API_KEY`: Sandbox key, if different from `NEBIUS_API_KEY`; otherwise leave blank.
-- `TAVILY_API_KEY`: optional for the legacy release rehearsal research path.
+- `TAVILY_API_KEY`: optional for user-requested dependency research in What’s New.
 
 Restart the service after changing credentials. Start the workspace:
 
@@ -41,6 +41,12 @@ Two deliberately small examples are available:
 
 These examples demonstrate a breaking change; they are not claims about every application using those packages. Resolution and tests use registry access and Sandbox compute and can consume credits.
 
+## What's New and metrics
+
+Open a project in Time Machine, then select **What’s New**. Choose a dependency and optionally a release, and request a search. Only the package name and selected version are sent to Tavily; package names can themselves be sensitive. Search results are public, external sources and may be stale, incomplete or unrelated. The configured model may summarize them; citations link to returned sources, and summaries are advisory. Previously requested research for the same dependency and version can be supplied to the repair agent. No source proves a test passed. Search and inference may consume credits.
+
+The Metrics page measures completed runs divided by terminal runs, median seconds from run creation to first conclusive candidate result, and verified repairs divided by recorded repair attempts. Active runs are excluded from completion; historical runs lacking timing are excluded from timing. The numbers describe local recorded runs, not product-wide accuracy or a comparison to uv. See [who benefits](docs/who-benefits.md).
+
 ## Supported inputs and limitations
 
 Python discovery reads `pyproject.toml` or `requirements.txt`; `uv.lock` and `poetry.lock` select their respective managers, otherwise pip is used. JavaScript/TypeScript discovery reads `package.json`; `yarn.lock` and `pnpm-lock.yaml` select those managers, otherwise npm is used, including `package-lock.json`. Native resolver and install commands are used in isolated Sandbox copies. Check the UI warnings for unsupported requirements, dynamic metadata, duplicate package instances and incomplete lockfile details. Complex workspaces, private registries, package-manager-specific configuration, external services and unusual scripts may require additional configuration and are not guaranteed to work.
@@ -53,7 +59,7 @@ Oriclus creates a local snapshot in `.oriclus/timeline/`, excluding `.env*`, com
 
 Dependency installation and resolution require network access and may execute project or package code. Tests, model tool operations and patch verification explicitly request no Sandbox network access. No model or Sandbox API credentials are passed to guest commands. Nebius controls image, upload, operation and log retention; a disposable operation does not guarantee that every service record is deleted. See [Sandbox security and data handling](https://docs.tokenfactory.nebius.com/sandboxes/operate/security-and-data-handling). Use trusted inputs and review commands and patches.
 
-`.oriclus/` contains local analyses, runs, history and artifacts and is excluded from Git. The older Docker-based release rehearsal and its existing history remain available in the navigation; its original research and historical verification are preserved in [docs/legacy-rehearsal.md](docs/legacy-rehearsal.md).
+`.oriclus/` contains local analyses, runs, history and artifacts and is excluded from Git. Previous Docker rehearsal history remains readable from History; new experiments use Time Machine. Its original history and verification are preserved in [docs/legacy-rehearsal.md](docs/legacy-rehearsal.md).
 
 ## Development
 

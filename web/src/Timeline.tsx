@@ -37,6 +37,7 @@ type Resolution = {
   requirements: Record<string, string>;
   message: string;
   packages?: Dependency[];
+  explanation_status?: "completed" | "unavailable" | "not_requested";
   explanation?: {
     summary: string;
     suggestions: string[];
@@ -77,6 +78,8 @@ type Experiment = {
   results: Result[];
   error?: string | null;
   activity?: Activity | null;
+  model?: string;
+  activity_history?: { stage: string; version: string | null; at: number }[];
 };
 type RecentExperiment = {
   id: string;
@@ -117,7 +120,15 @@ function resultClass(status: string) {
       : "unknown";
 }
 
-export default function Timeline() {
+export default function Timeline({
+  onAnalysis,
+  target,
+  onTargetHandled,
+}: {
+  onAnalysis: (id: string) => void;
+  target: { id: string; package: string; version: string } | null;
+  onTargetHandled: () => void;
+}) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const [source, setSource] = useState<"github" | "local">("github");
   const [location, setLocation] = useState("");
@@ -133,6 +144,31 @@ export default function Timeline() {
   const [submitting, setSubmitting] = useState(false);
   const [runError, setRunError] = useState("");
   const [recentLimit, setRecentLimit] = useState(10);
+
+  useEffect(() => {
+    if (!target) return;
+    let live = true;
+    api<Analysis>(`/timeline/analyses/${encodeURIComponent(target.id)}`)
+      .then((data) => {
+        if (live) {
+          setAnalysis(data);
+          onAnalysis(data.id);
+          setSelection({ name: target.package, version: target.version });
+        }
+      })
+      .catch((err) => {
+        if (live)
+          setError(
+            err instanceof Error ? err.message : "Could not open project.",
+          );
+      });
+    return () => {
+      live = false;
+    };
+  }, [target, onAnalysis]);
+  useEffect(() => {
+    if (target && analysis?.id === target.id) onTargetHandled();
+  }, [analysis, target, onTargetHandled]);
 
   useEffect(() => {
     if (analysis && scrollRef.current) {
@@ -254,6 +290,7 @@ export default function Timeline() {
         location: location.trim(),
       });
       setAnalysis(result);
+      onAnalysis(result.id);
       setTestCommand(
         result.ecosystem === "python"
           ? "python -m pytest"
@@ -334,6 +371,7 @@ export default function Timeline() {
         api<Experiment>(`/timeline/runs/${encodeURIComponent(item.id)}`),
       ]);
       setAnalysis(saved);
+      onAnalysis(saved.id);
       setSelection(null);
       setQueued([]);
       setRunId(item.id);
@@ -782,6 +820,13 @@ export default function Timeline() {
                     ) : resolution.data ? (
                       <>
                         <p>{resolution.data.message}</p>
+                        {resolution.data.explanation_status ===
+                          "unavailable" && (
+                          <p className="tm-limit">
+                            Model conflict explanation unavailable. The native
+                            resolver output remains available above.
+                          </p>
+                        )}
                         {resolution.data.explanation && (
                           <details>
                             <summary>
@@ -1020,6 +1065,33 @@ export default function Timeline() {
                             : run.data.activity
                         }
                       />
+                    )}
+                    {run.data.model && (
+                      <p className="tm-limit">
+                        Configured agent model: <code>{run.data.model}</code>.
+                        The model is called only to explain a conflict or
+                        investigate a qualifying test failure.
+                      </p>
+                    )}
+                    {!!run.data.activity_history?.length && (
+                      <details className="tm-agent-history">
+                        <summary>Recorded activity</summary>
+                        <ol>
+                          {run.data.activity_history.map((event, index) => (
+                            <li key={`${event.at}-${index}`}>
+                              <time>
+                                {new Date(event.at * 1000).toLocaleTimeString()}
+                              </time>{" "}
+                              · {event.stage.replaceAll("_", " ")}
+                              {event.version ? ` · ${event.version}` : ""}
+                            </li>
+                          ))}
+                        </ol>
+                        <p className="tm-limit">
+                          Stages are recorded events; they do not expose model
+                          reasoning or command logs.
+                        </p>
+                      </details>
                     )}
                     {run.data.baseline && (
                       <ResultCard title="Baseline" result={run.data.baseline} />

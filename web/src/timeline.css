@@ -860,3 +860,23 @@
     animation: none;
   }
 }
+
+.tm-agent-history {
+  margin: 14px 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+.tm-agent-history summary {
+  color: var(--ink);
+  cursor: pointer;
+}
+.tm-agent-history ol {
+  padding-left: 22px;
+  margin: 8px 0;
+}
+.tm-agent-history li {
+  margin: 4px 0;
+}
+.tm-agent-history time {
+  font-variant-numeric: tabular-nums;
+}

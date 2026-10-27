@@ -1,5 +1,5 @@
 import { useDeferredValue, useState, useSyncExternalStore } from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import {
   ArrowRight,
   BookOpen,
@@ -7,11 +7,13 @@ import {
   History as HistoryIcon,
   CalendarDays,
   PanelLeft,
-  Plus,
+  Newspaper,
+  BarChart3,
   Settings2,
 } from "lucide-react";
 import mark from "./mark.svg";
-import Composer from "./Composer";
+import News from "./News";
+import Metrics from "./Metrics";
 import Timeline from "./Timeline";
 import RunView from "./RunView";
 import { Pager, Status } from "./ui";
@@ -19,11 +21,8 @@ import {
   api,
   repo,
   shortRef,
-  type DiscoverySpec,
   type Health,
   type Page,
-  type Run,
-  type RunSpec,
   type RunSummary,
 } from "./api";
 
@@ -55,9 +54,9 @@ function History({
   return (
     <>
       <header className="page-heading inline">
-        <h1>Your checks</h1>
+        <h1>Historical Docker checks</h1>
         <button className="primary" onClick={onNew}>
-          New check
+          Open time machine
         </button>
       </header>
       <div className="filters">
@@ -147,7 +146,7 @@ function History({
               </p>
               {!search && !status && (
                 <button className="primary" onClick={onNew}>
-                  Check a repository
+                  Open time machine
                 </button>
               )}
             </div>
@@ -171,12 +170,12 @@ export default function App() {
   const params = new URLSearchParams(search);
   const runId = params.get("run");
   const page = params.get("page") || "timeline";
-  const [draft, setDraft] = useState<{
-    key: number;
-    spec?: RunSpec;
-    discovery?: DiscoverySpec;
-  }>({ key: 0 });
-  const client = useQueryClient();
+  const [analysisId, setAnalysisId] = useState<string | null>(null);
+  const [timelineTarget, setTimelineTarget] = useState<{
+    id: string;
+    package: string;
+    version: string;
+  } | null>(null);
   const health = useQuery({
     queryKey: ["health"],
     queryFn: () => api<Health>("/health"),
@@ -187,26 +186,12 @@ export default function App() {
     window.dispatchEvent(new PopStateEvent("popstate"));
     window.scrollTo({ top: 0 });
   };
-  const newCheck = () => {
-    setDraft((previous) => ({ key: previous.key + 1 }));
-    navigate("?page=rehearsal");
-  };
+  const newCheck = () => navigate("");
   const open = (id: string) => navigate(`?run=${encodeURIComponent(id)}`);
-  const created = (run: Run) => {
-    client.setQueryData(["run", run.id], run);
-    client.invalidateQueries({ queryKey: ["health"] });
-    client.invalidateQueries({ queryKey: ["runs"] });
-    open(run.id);
+  const openTimeline = (id: string, pkg: string, version: string) => {
+    setTimelineTarget({ id, package: pkg, version });
+    navigate("");
   };
-  const reuse = (run: Run) => {
-    setDraft((previous) => ({
-      key: previous.key + 1,
-      spec: run.request.consumers.length ? run.request : undefined,
-      discovery: run.discovery,
-    }));
-    navigate("?page=rehearsal");
-  };
-  const busy = !!health.data?.active_run;
   return (
     <div className={`app-shell ${sidebarOpen ? "" : "sidebar-collapsed"}`}>
       <a className="skip-link" href="#main">
@@ -265,11 +250,16 @@ export default function App() {
             Time machine
           </button>
           <button
-            aria-current={!runId && page === "rehearsal" ? "page" : undefined}
-            onClick={newCheck}
+            aria-current={!runId && page === "news" ? "page" : undefined}
+            onClick={() => navigate("?page=news")}
           >
-            <Plus size={17} />
-            Release rehearsal
+            <Newspaper size={17} /> What’s new
+          </button>
+          <button
+            aria-current={!runId && page === "metrics" ? "page" : undefined}
+            onClick={() => navigate("?page=metrics")}
+          >
+            <BarChart3 size={17} /> Metrics
           </button>
           <button
             aria-current={runId || page === "history" ? "page" : undefined}
@@ -300,27 +290,8 @@ export default function App() {
             <button onClick={() => health.refetch()}>Retry</button>
           </p>
         )}
-        {health.data?.active_run && health.data.active_run.id !== runId && (
-          <button
-            className="active-banner"
-            onClick={() => open(health.data!.active_run!.id)}
-          >
-            <span>
-              A check is active: <strong>{health.data.active_run.title}</strong>
-            </span>
-            <span>
-              View progress <ArrowRight size={15} />
-            </span>
-          </button>
-        )}
         {runId ? (
-          <RunView
-            key={runId}
-            id={runId}
-            busy={busy}
-            onReuse={reuse}
-            onStarted={created}
-          />
+          <RunView key={runId} id={runId} />
         ) : page === "history" ? (
           <History onOpen={open} onNew={newCheck} />
         ) : page === "settings" ? (
@@ -334,16 +305,6 @@ export default function App() {
             ) : (
               health.data && (
                 <dl className="settings-list">
-                  <div>
-                    <dt>Docker</dt>
-                    <dd>
-                      {health.data.docker && health.data.image
-                        ? "Ready"
-                        : !health.data.docker
-                          ? "Start Docker Desktop."
-                          : "Build the sandbox image using the README setup command."}
-                    </dd>
-                  </div>
                   <div>
                     <dt>Nebius Sandboxes</dt>
                     <dd>
@@ -365,7 +326,7 @@ export default function App() {
                     <dd>
                       {health.data.tavily_configured
                         ? "Configured"
-                        : "Add TAVILY_API_KEY to .env for discovery."}
+                        : "Add TAVILY_API_KEY to .env for dependency research."}
                     </dd>
                   </div>
                 </dl>
@@ -380,26 +341,26 @@ export default function App() {
                 experiment.
               </p>
               <p>
-                Existing release rehearsals use Docker. Time machine experiments
-                use Nebius Sandboxes when configured. Review the recorded
-                environment and execution results for each run.
-              </p>
-              <p>
-                Keep this Docker-controlling service on localhost and use
-                repositories you trust.
+                Keep this local execution service on localhost and use
+                repositories you trust. Historical Docker records remain
+                accessible in History.
               </p>
             </details>
           </>
-        ) : page === "rehearsal" ? (
-          <Composer
-            key={draft.key}
-            seed={draft.spec}
-            discovery={draft.discovery}
-            busy={busy}
-            onCreated={created}
+        ) : page === "news" ? (
+          <News
+            analysisId={analysisId}
+            onAnalysis={setAnalysisId}
+            onTimeline={openTimeline}
           />
+        ) : page === "metrics" ? (
+          <Metrics />
         ) : (
-          <Timeline />
+          <Timeline
+            onAnalysis={setAnalysisId}
+            target={timelineTarget}
+            onTargetHandled={() => setTimelineTarget(null)}
+          />
         )}
       </main>
     </div>

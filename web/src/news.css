@@ -1,0 +1,119 @@
+.news-page {
+  max-width: 1100px;
+}
+.news-setup {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr)) auto;
+  gap: 16px;
+  align-items: end;
+  padding: 22px;
+  margin: 24px 0;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+}
+.news-setup label {
+  display: grid;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 12px;
+}
+.news-setup select {
+  width: 100%;
+  min-height: 40px;
+  color: var(--ink);
+  background: #17171b;
+  border: 1px solid var(--control-line, #46464c);
+  padding: 8px;
+}
+.news-setup button {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  min-height: 40px;
+  white-space: nowrap;
+}
+.news-setup p {
+  grid-column: 1 / -1;
+  color: var(--muted);
+  font-size: 12px;
+}
+.news-entry {
+  border-top: 1px solid var(--line);
+  padding: 24px 0;
+}
+.news-entry-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: start;
+}
+.news-entry h2 {
+  font-size: 17px;
+}
+.news-entry-head p,
+.news-note {
+  color: var(--muted);
+  margin-top: 8px;
+}
+.news-list {
+  list-style: none;
+  margin: 16px 0 0;
+  padding: 0;
+}
+.news-list li {
+  display: grid;
+  grid-template-columns: 130px 1fr;
+  gap: 16px;
+  padding: 16px 0;
+  border-top: 1px solid var(--line);
+}
+.news-date {
+  color: var(--muted);
+  font-size: 12px;
+}
+.news-list a {
+  color: var(--link);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.news-list a svg {
+  vertical-align: middle;
+}
+.news-list p {
+  color: var(--muted);
+  margin-top: 6px;
+  overflow-wrap: anywhere;
+}
+@media (max-width: 800px) {
+  .news-setup {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+@media (max-width: 500px) {
+  .news-setup {
+    grid-template-columns: 1fr;
+  }
+  .news-list li {
+    grid-template-columns: 1fr;
+    gap: 6px;
+  }
+  .news-entry-head {
+    flex-direction: column;
+  }
+}
+
+.news-summary {
+  margin: 18px 0;
+  padding: 14px;
+  background: #17171b;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+.news-summary p {
+  color: var(--muted);
+  margin-top: 8px;
+}
+.news-summary a {
+  color: var(--link);
+}

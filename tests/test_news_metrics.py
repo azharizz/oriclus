@@ -15,7 +15,7 @@ class ResearchTests(unittest.IsolatedAsyncioTestCase):
             "query": "demo 1.0 release notes",
             "results": [
                 {
-                    "title": "Release",
+                    "title": "demo Release",
                     "url": "https://example.com",
                     "content": "Example",
                     "published_date": None,
@@ -31,6 +31,17 @@ class ResearchTests(unittest.IsolatedAsyncioTestCase):
                 patch.object(
                     news, "search", new=AsyncMock(return_value=response)
                 ) as search,
+                patch.object(
+                    news,
+                    "summarize",
+                    new=AsyncMock(
+                        return_value={
+                            "status": "unavailable",
+                            "findings": [],
+                            "limitations": [],
+                        }
+                    ),
+                ),
             ):
                 result = await news.investigate("a" * 32, "demo", "1.0")
                 self.assertEqual(news.saved("a" * 32)[0], result)
@@ -39,6 +50,34 @@ class ResearchTests(unittest.IsolatedAsyncioTestCase):
                     await news.investigate("a" * 32, "private-secret", "1.0")
                 with self.assertRaises(BoundaryError):
                     await news.investigate("a" * 32, "demo", "2.0")
+
+    async def test_model_summary_discards_citations_not_in_sources(self):
+        source = {
+            "title": "demo",
+            "url": "https://example.com",
+            "content": "demo release",
+        }
+        reply = {
+            "findings": [
+                {
+                    "category": "change",
+                    "summary": "supported",
+                    "source_urls": ["https://example.com"],
+                },
+                {
+                    "category": "change",
+                    "summary": "invented",
+                    "source_urls": ["https://invented.example"],
+                },
+                {"category": "change", "summary": "uncited", "source_urls": []},
+            ],
+            "limitations": [],
+        }
+        with patch("server.agent.reason", new=AsyncMock(return_value=reply)):
+            result = await news.summarize("demo", "1.0", [source])
+        self.assertEqual(
+            [finding["summary"] for finding in result["findings"]], ["supported"]
+        )
 
 
 class MetricsTests(unittest.TestCase):

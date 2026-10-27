@@ -620,13 +620,22 @@ class TimelineRuns:
                     if item["status"] == "failed":
                         from server.news import saved
 
-                        evidence = [
-                            source
-                            for entry in saved(run["analysis_id"])
-                            if entry["package"] == run["package"]
-                            and entry.get("version") in (None, version)
-                            for source in entry["sources"]
-                        ][:5]
+                        try:
+                            evidence = [
+                                source
+                                for entry in saved(run["analysis_id"])
+                                if entry["package"] == run["package"]
+                                and entry.get("version") in (None, version)
+                                for source in entry["sources"]
+                            ][:5]
+                        except (
+                            BoundaryError,
+                            OSError,
+                            ValueError,
+                            KeyError,
+                            TypeError,
+                        ):
+                            evidence = []
                         run["results"].append(item)
                         self._save(run)
                         item["repair"] = await _repair(

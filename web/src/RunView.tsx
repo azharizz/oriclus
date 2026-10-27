@@ -16,7 +16,6 @@ import {
   type RunEvent,
 } from "./api";
 import { Pager, Status } from "./ui";
-import { ReviewSetup } from "./SetupEditor";
 
 function testOutcome(
   execution: Execution | null | undefined,
@@ -563,17 +562,7 @@ function Results({ run }: { run: Run }) {
   );
 }
 
-export default function RunView({
-  id,
-  busy,
-  onReuse,
-  onStarted,
-}: {
-  id: string;
-  busy: boolean;
-  onReuse: (run: Run) => void;
-  onStarted: (run: Run) => void;
-}) {
+export default function RunView({ id }: { id: string }) {
   const [tab, setTab] = useState("results");
   const client = useQueryClient();
   const query = useQuery({
@@ -638,13 +627,7 @@ export default function RunView({
               <Square size={13} />
               {cancel.isSuccess ? "Cancelling…" : "Cancel"}
             </button>
-          ) : (
-            <button className="text-button" onClick={() => onReuse(run)}>
-              {run.status === "failed" || run.status === "interrupted"
-                ? "Edit and retry"
-                : "Reuse setup"}
-            </button>
-          )}
+          ) : null}
         </div>
       </div>
       {cancel.error && (
@@ -675,7 +658,10 @@ export default function RunView({
         </div>
       )}
       {run.status === "ready" ? (
-        <ReviewSetup run={run} busy={busy} onStarted={onStarted} />
+        <p className="empty">
+          This historical setup is read-only. Start a new experiment in Time
+          Machine.
+        </p>
       ) : (
         <>
           <div className="view-tabs" role="group" aria-label="Result views">

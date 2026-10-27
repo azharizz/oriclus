@@ -794,12 +794,16 @@ async def resolve(
         )
         if conflict and progress:
             progress("explaining")
+        explanation = await explain_conflict(output) if conflict else None
         return {
             "status": "conflict" if conflict else "error",
             "selected": {},
             "requirements": requirements,
             "message": output or "The resolver did not complete.",
-            "explanation": await explain_conflict(output) if conflict else None,
+            "explanation": explanation,
+            "explanation_status": ("completed" if explanation else "unavailable")
+            if conflict
+            else "not_requested",
         }
     marker = "__ORICLUS_RESULT__="
     line = next(

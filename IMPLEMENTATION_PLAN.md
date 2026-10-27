@@ -21,3 +21,14 @@ The approved plan in the task conversation is the source of truth. This checklis
 - A live remote operation reached CANCELLED after cancellation. Legacy Docker history was opened from the copied local database and remains labeled Docker.
 - Real public GitHub and local projects were inspected in the workspace. The 19-dependency HTTPX timeline was visually inspected; responsive interaction was checked with mock data, not every device or package-manager configuration.
 - A live transitive Jinja2 3.1.3 experiment passed its selected Flask import check. Requirement provenance and transitive release rows were confirmed for a live resolved Flask/Werkzeug set.
+
+## Focused workspace follow-up
+
+- [x] Remove creation of legacy rehearsals from navigation; retain historical Docker results as read-only records and preserve the old APIs for history compatibility.
+- [x] Show the configured model, live operation stages and recorded activity for experiments; distinguish conflict explanation and repair unavailability from actual test evidence.
+- [x] Keep baseline and selected-version testing in independent Nebius Sandbox branches using the project's package manager.
+- [x] Add user-requested Tavily release research with source links, optional model summaries, dated source ordering, and previously requested evidence available to repair; source findings are advisory.
+- [x] Add local experiment metrics with explicit denominators and timing limitations, plus audience documentation.
+- [x] Run a bounded uv-only comparison on the same example and versions; do not save an unfavorable comparison to a benchmark file.
+
+Scope notes: What’s New is manually refreshed and uses search-result publication dates when supplied; dates may be unknown and results can be incomplete. It is not an automatic monitor. Historical experiment records without timing cannot provide time-to-result metrics. Organization-wide private-repository analysis remains future work.
