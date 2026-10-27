@@ -1065,8 +1065,8 @@ details[open] > summary > .disclosure-icon {
     padding: 24px 18px 60px;
   }
   .app-shell:not(.sidebar-collapsed) main {
-    margin-left: 210px;
-    min-width: 300px;
+    margin-left: 0;
+    min-width: 0;
   }
   .repository-entry,
   .field-pair {

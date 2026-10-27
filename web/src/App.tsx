@@ -5,12 +5,14 @@ import {
   BookOpen,
   ExternalLink,
   History as HistoryIcon,
+  CalendarDays,
   PanelLeft,
   Plus,
   Settings2,
 } from "lucide-react";
 import mark from "./mark.svg";
 import Composer from "./Composer";
+import Timeline from "./Timeline";
 import RunView from "./RunView";
 import { Pager, Status } from "./ui";
 import {
@@ -164,11 +166,11 @@ function History({
 }
 
 export default function App() {
-  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [sidebarOpen, setSidebarOpen] = useState(() => window.innerWidth > 600);
   const search = useSyncExternalStore(subscribeLocation, locationSnapshot);
   const params = new URLSearchParams(search);
   const runId = params.get("run");
-  const page = params.get("page") || "new";
+  const page = params.get("page") || "timeline";
   const [draft, setDraft] = useState<{
     key: number;
     spec?: RunSpec;
@@ -187,7 +189,7 @@ export default function App() {
   };
   const newCheck = () => {
     setDraft((previous) => ({ key: previous.key + 1 }));
-    navigate("");
+    navigate("?page=rehearsal");
   };
   const open = (id: string) => navigate(`?run=${encodeURIComponent(id)}`);
   const created = (run: Run) => {
@@ -202,7 +204,7 @@ export default function App() {
       spec: run.request.consumers.length ? run.request : undefined,
       discovery: run.discovery,
     }));
-    navigate("");
+    navigate("?page=rehearsal");
   };
   const busy = !!health.data?.active_run;
   return (
@@ -225,16 +227,16 @@ export default function App() {
           className="brand"
           onClick={(e) => {
             e.preventDefault();
-            newCheck();
+            navigate("");
           }}
           aria-label="Oriclus home"
         >
           <span className="brand-name">Oriclus</span>
           <img src={mark} alt="" width="30" height="30" />
           <span className="brand-purpose">
-            Release
+            Dependency
             <br />
-            rehearsals
+            workspace
           </span>
         </a>
         <span className="workspace-name">Local workspace</span>
@@ -256,11 +258,18 @@ export default function App() {
         <nav aria-label="Main navigation">
           <p className="nav-heading">Workspace</p>
           <button
-            aria-current={!runId && page === "new" ? "page" : undefined}
+            aria-current={!runId && page === "timeline" ? "page" : undefined}
+            onClick={() => navigate("")}
+          >
+            <CalendarDays size={17} />
+            Time machine
+          </button>
+          <button
+            aria-current={!runId && page === "rehearsal" ? "page" : undefined}
             onClick={newCheck}
           >
             <Plus size={17} />
-            New check
+            Release rehearsal
           </button>
           <button
             aria-current={runId || page === "history" ? "page" : undefined}
@@ -280,8 +289,8 @@ export default function App() {
         </nav>
         <div className="sidebar-note">
           <strong>Oriclus workspace</strong>
-          <span>Public Python repositories</span>
-          <span>Runs locally with Docker</span>
+          <span>Explore version history</span>
+          <span>Test changes with evidence</span>
         </div>
       </aside>
       <main id="main" tabIndex={-1}>
@@ -362,9 +371,9 @@ export default function App() {
                 installation and tests run only after you start a check.
               </p>
               <p>
-                One active check at a time. Docker is the current runtime;
-                native Nebius Sandbox access is pending. Tests and repair
-                containers run offline without host mounts.
+                Existing release rehearsals use Docker. Time machine experiments
+                use Nebius Sandboxes when configured. Review the recorded
+                environment and execution results for each run.
               </p>
               <p>
                 Keep this Docker-controlling service on localhost and use
@@ -372,7 +381,7 @@ export default function App() {
               </p>
             </details>
           </>
-        ) : (
+        ) : page === "rehearsal" ? (
           <Composer
             key={draft.key}
             seed={draft.spec}
@@ -380,6 +389,8 @@ export default function App() {
             busy={busy}
             onCreated={created}
           />
+        ) : (
+          <Timeline />
         )}
       </main>
     </div>
