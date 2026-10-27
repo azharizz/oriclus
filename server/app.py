@@ -363,6 +363,8 @@ class TimelineRunRequest(BaseModel):
     analysis_id: str = Field(pattern="^[0-9a-f]{32}$")
     package: str = Field(min_length=1, max_length=214)
     versions: list[str] = Field(min_length=1, max_length=5)
+    selections: dict[str, list[str]] | None = None
+    goal: dict[str, str] | None = None
     test_command: str = Field(min_length=1, max_length=8000)
 
 
@@ -585,7 +587,12 @@ async def timeline_recent(limit: Annotated[int, Query(ge=1, le=100)] = 10):
 async def timeline_start(spec: TimelineRunRequest):
     try:
         return await timeline_runs.start(
-            spec.analysis_id, spec.package, spec.versions, spec.test_command
+            spec.analysis_id,
+            spec.package,
+            spec.versions,
+            spec.test_command,
+            spec.selections,
+            spec.goal,
         )
     except (BoundaryError, ValueError) as error:
         raise HTTPException(400, str(error)) from error

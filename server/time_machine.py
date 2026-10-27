@@ -608,21 +608,27 @@ async def analyze(source: str, location: str) -> dict:
         raise
 
 
-def candidate_script(analysis: dict, package: str, version: str) -> tuple[str, str]:
+def candidate_script(
+    analysis: dict, package: str, version: str, selections: dict[str, str] | None = None
+) -> tuple[str, str]:
     """Build a native resolver experiment for a selected timeline release."""
     import shlex
 
-    known = next(
-        (item for item in analysis["packages"] if item["name"] == package), None
-    )
-    if not known or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._+!\-]*", version):
-        raise BoundaryError("Choose a package and version from this timeline.")
-    if not any(item["version"] == version for item in known["releases"]):
-        raise BoundaryError(
-            "This version is not present in the loaded release metadata."
+    selections = selections or {package: version}
+    for name, selected in selections.items():
+        known = next(
+            (item for item in analysis["packages"] if item["name"] == name), None
         )
+        if not known or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._+!\-]*", selected):
+            raise BoundaryError("Choose a package and version from this timeline.")
+        if not any(item["version"] == selected for item in known["releases"]):
+            raise BoundaryError(
+                "This version is not present in the loaded release metadata."
+            )
     manager = analysis["manager"]
-    selected_spec = shlex.quote(f"{package}=={version}")
+    selected_spec = " ".join(
+        shlex.quote(f"{name}=={selected}") for name, selected in selections.items()
+    )
     if manager == "pip":
         if any(
             warning.startswith(
@@ -639,15 +645,15 @@ def candidate_script(analysis: dict, package: str, version: str) -> tuple[str, s
             )
         specs = []
         for item in analysis["packages"]:
-            if not item["direct"] or canonicalize_name(
-                item["name"]
-            ) == canonicalize_name(package):
+            if not item["direct"] or canonicalize_name(item["name"]) in {
+                canonicalize_name(name) for name in selections
+            }:
                 continue
             extras = f"[{','.join(item['extras'])}]" if item.get("extras") else ""
             suffix = "" if item["requirement"] == "*" else item["requirement"]
             marker = f"; {item['marker']}" if item.get("marker") else ""
             specs.append(item["name"] + extras + suffix + marker)
-        specs.append(f"{package}=={version}")
+        specs.extend(f"{name}=={selected}" for name, selected in selections.items())
         args = " ".join(shlex.quote(s) for s in specs)
         script = f"""python -m pip install --dry-run --ignore-installed --disable-pip-version-check --report /tmp/oriclus-resolution.json {args} >/tmp/oriclus-resolve.log 2>&1 || {{ cat /tmp/oriclus-resolve.log; exit 1; }}
 python -c 'import json; d=json.load(open("/tmp/oriclus-resolution.json")); print("__ORICLUS_RESULT__=" + json.dumps({{p["metadata"]["name"]:p["metadata"]["version"] for p in d["install"]}}))'
@@ -672,8 +678,8 @@ python -c {shlex.quote(parse)}
 """
         ecosystem = "python"
     elif manager in ("npm", "yarn", "pnpm"):
-        data = json.dumps({"package": package, "version": version, "manager": manager})
-        js = """const fs=require('fs');const d=JSON.parse(process.argv[1]);const p=JSON.parse(fs.readFileSync('package.json'));let direct=false;for(const g of ['dependencies','devDependencies','optionalDependencies','peerDependencies']){if(p[g]&&Object.hasOwn(p[g],d.package)){p[g][d.package]=d.version;direct=true;}}if(!direct){if(d.manager==='yarn')p.resolutions={...p.resolutions,[d.package]:d.version};else if(d.manager==='pnpm'){p.pnpm=p.pnpm||{};p.pnpm.overrides={...p.pnpm.overrides,[d.package]:d.version};}else p.overrides={...p.overrides,[d.package]:d.version};}fs.writeFileSync('package.json',JSON.stringify(p,null,2));"""
+        data = json.dumps({"selections": selections, "manager": manager})
+        js = """const fs=require('fs');const d=JSON.parse(process.argv[1]);const p=JSON.parse(fs.readFileSync('package.json'));for(const [name,version] of Object.entries(d.selections)){let direct=false;for(const g of ['dependencies','devDependencies','optionalDependencies','peerDependencies']){if(p[g]&&Object.hasOwn(p[g],name)){p[g][name]=version;direct=true;}}if(!direct){if(d.manager==='yarn')p.resolutions={...p.resolutions,[name]:version};else if(d.manager==='pnpm'){p.pnpm=p.pnpm||{};p.pnpm.overrides={...p.pnpm.overrides,[name]:version};}else p.overrides={...p.overrides,[name]:version};}}fs.writeFileSync('package.json',JSON.stringify(p,null,2));"""
         if manager == "npm":
             command = "rm -f package-lock.json; npm install --package-lock-only --ignore-scripts --no-audit --no-fund"
             report = """const fs=require('fs');const p=JSON.parse(fs.readFileSync('package-lock.json'));const out={},dup=new Set();for(const [k,v] of Object.entries(p.packages||{})){if(k.startsWith('node_modules/')&&v.version){const n=k.split('node_modules/').pop();if(out[n]&&out[n]!==v.version)dup.add(n);if(!(n in out)||k===`node_modules/${n}`)out[n]=v.version;}}for(const n of dup)delete out[n];console.log('__ORICLUS_RESULT__='+JSON.stringify({_oriclus:1,selected:out,duplicates:[...dup]}));"""

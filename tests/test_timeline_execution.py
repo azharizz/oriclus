@@ -17,6 +17,166 @@ from server.timeline_execution import (
 
 
 class ExecutionTests(unittest.TestCase):
+    def test_matrix_resolves_all_requested_versions_together(self):
+        from server.time_machine import candidate_script
+
+        analysis = {
+            "manager": "pip",
+            "packages": [
+                {
+                    "name": name,
+                    "direct": True,
+                    "requirement": "==1",
+                    "releases": [{"version": "2"}],
+                }
+                for name in ("alpha", "beta")
+            ],
+        }
+        script, _ = candidate_script(
+            analysis, "alpha", "2", {"alpha": "2", "beta": "2"}
+        )
+        self.assertIn("alpha==2", script)
+        self.assertIn("beta==2", script)
+        self.assertNotIn("beta==1", script)
+        with self.assertRaisesRegex(Exception, "metadata"):
+            candidate_script(analysis, "alpha", "2", {"alpha": "2", "beta": "3"})
+        for manager in ("uv", "poetry", "npm", "yarn", "pnpm"):
+            with self.subTest(manager=manager):
+                script, _ = candidate_script(
+                    {**analysis, "manager": manager},
+                    "alpha",
+                    "2",
+                    {"alpha": "2", "beta": "2"},
+                )
+                self.assertIn("alpha", script)
+                self.assertIn("beta", script)
+
+    def test_matrix_runs_concurrently_with_separate_candidate_images(self):
+        async def check():
+            active = 0
+            peak = 0
+            parents = []
+
+            class FakeSandbox:
+                async def project(self, path, ecosystem, progress=None):
+                    return "common"
+
+                async def run(self, image, command, **options):
+                    nonlocal active, peak
+                    result = {
+                        "exit_code": 0,
+                        "image_id": None,
+                        "timed_out": False,
+                        "stdout": "",
+                        "stderr": "",
+                        "operation_id": "op",
+                    }
+                    if image == "common":
+                        result["image_id"] = "parent"
+                    elif command.startswith("resolve-"):
+                        parents.append(image)
+                        active += 1
+                        peak = max(peak, active)
+                        await asyncio.sleep(0.02)
+                        active -= 1
+                        result["image_id"] = command.split("\\n", 1)[0]
+                    elif command.startswith("git add"):
+                        result["image_id"] = image + "-checkpoint"
+                    return result
+
+            analysis = {
+                "ecosystem": "python",
+                "manager": "pip",
+                "packages": [
+                    {
+                        "name": name,
+                        "direct": True,
+                        "releases": [{"version": v} for v in ("1", "2")],
+                    }
+                    for name in ("a", "b")
+                ],
+            }
+            with (
+                tempfile.TemporaryDirectory() as directory,
+                patch("server.timeline_execution.RUNS", Path(directory)),
+                patch("server.timeline_execution.Sandbox", FakeSandbox),
+                patch("server.time_machine.get_analysis", return_value=analysis),
+                patch(
+                    "server.time_machine.snapshot_path",
+                    return_value=Path(directory),
+                ),
+                patch(
+                    "server.time_machine.candidate_script",
+                    side_effect=lambda a, p, v, c: (
+                        "resolve-" + c["a"] + c["b"],
+                        "python",
+                    ),
+                ),
+            ):
+                runs = TimelineRuns()
+                run = await runs.start(
+                    "a" * 32,
+                    "a",
+                    ["1", "2"],
+                    "test",
+                    {"a": ["1", "2"], "b": ["1", "2"]},
+                    {"package": "b", "version": "2"},
+                )
+
+                await runs.tasks[run["id"]]
+                saved = runs.get(run["id"])
+                self.assertEqual(saved["status"], "completed")
+                self.assertEqual(saved["goal"], {"package": "b", "version": "2"})
+                self.assertEqual(len(saved["results"]), 4)
+                self.assertEqual(
+                    {tuple(sorted(x["combination"].items())) for x in saved["results"]},
+                    {(("a", a), ("b", b)) for a in ("1", "2") for b in ("1", "2")},
+                )
+                self.assertTrue(
+                    all(item["status"] == "passed" for item in saved["results"])
+                )
+                self.assertEqual(parents, ["parent"] * 4)
+                self.assertEqual(peak, 3)
+
+        asyncio.run(check())
+
+    def test_matrix_bounds_and_goal_are_validated(self):
+        async def check():
+            analysis = {
+                "packages": [
+                    {
+                        "name": name,
+                        "releases": [{"version": str(n)} for n in range(1, 6)],
+                    }
+                    for name in ("a", "b")
+                ]
+            }
+            with (
+                tempfile.TemporaryDirectory() as directory,
+                patch("server.timeline_execution.RUNS", Path(directory)),
+                patch("server.time_machine.get_analysis", return_value=analysis),
+            ):
+                runs = TimelineRuns()
+                with self.assertRaisesRegex(Exception, "12 combinations"):
+                    await runs.start(
+                        "a" * 32,
+                        "a",
+                        ["1", "2", "3"],
+                        "test",
+                        {"a": ["1", "2", "3"], "b": ["1", "2", "3", "4", "5"]},
+                    )
+                with self.assertRaisesRegex(Exception, "upgrade goal"):
+                    await runs.start(
+                        "a" * 32,
+                        "a",
+                        ["1"],
+                        "test",
+                        {"a": ["1"]},
+                        {"package": "a", "version": "2"},
+                    )
+
+        asyncio.run(check())
+
     def test_patch_rejects_tests_and_metadata(self):
         self.assertTrue(_patch_allowed(["src/app.py"]))
         self.assertFalse(_patch_allowed(["src/app.py", "tests/test_app.py"]))
