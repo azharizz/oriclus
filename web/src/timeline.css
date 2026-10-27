@@ -880,3 +880,34 @@
 .tm-agent-history time {
   font-variant-numeric: tabular-nums;
 }
+
+.tm-key.research {
+  background: transparent;
+  border: 2px solid #8bd8ff;
+}
+.tm-release.has-research {
+  outline: 2px solid #8bd8ff;
+  outline-offset: 3px;
+}
+.tm-release-research {
+  border-top: 1px solid var(--line);
+  margin-top: 16px;
+  padding-top: 16px;
+}
+.tm-release-research details {
+  margin-top: 10px;
+}
+.tm-release-research p {
+  overflow-wrap: anywhere;
+  margin-top: 8px;
+}
+.tm-release-research a {
+  color: var(--link);
+}
+.tm-agent-history code {
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+.tm-agent-history li p {
+  margin: 5px 0;
+}

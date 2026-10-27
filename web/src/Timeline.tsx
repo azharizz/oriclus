@@ -80,6 +80,7 @@ type Experiment = {
   activity?: Activity | null;
   model?: string;
   activity_history?: { stage: string; version: string | null; at: number }[];
+  agent_decisions?: AgentDecision[];
 };
 type RecentExperiment = {
   id: string;
@@ -87,6 +88,37 @@ type RecentExperiment = {
   package: string;
   versions: string[];
   status: string;
+};
+type ResearchEntry = {
+  package: string;
+  version: string | null;
+  searched_at: string;
+  summary?: {
+    status: string;
+    findings: { category: string; summary: string; source_urls: string[] }[];
+    limitations: string[];
+  };
+  sources: {
+    title: string;
+    url: string;
+    content: string;
+    published_date?: string | null;
+  }[];
+};
+type AgentDecision = {
+  kind: string;
+  version: string;
+  at: number;
+  turn?: number;
+  goal?: string;
+  steps?: string[];
+  limitations?: string[];
+  text?: string;
+  tool?: string;
+  input?: string;
+  exit_code?: number | null;
+  error?: string | null;
+  tool_count?: number;
 };
 type Selection = { name: string; version: string };
 
@@ -212,6 +244,13 @@ export default function Timeline({
       api<Activity>(`/timeline/resolution-progress/${resolutionProgressId}`),
     enabled: !!analysis && !!selection && resolution.isFetching,
     refetchInterval: 700,
+    retry: false,
+  });
+  const research = useQuery({
+    queryKey: ["timeline-research", analysis?.id],
+    queryFn: () => api<ResearchEntry[]>(`/timeline/research/${analysis!.id}`),
+    enabled: !!analysis,
+    refetchInterval: 10000,
     retry: false,
   });
   const run = useQuery({
@@ -602,6 +641,9 @@ export default function Timeline({
             <span>
               <i className="tm-key release" /> Available release
             </span>
+            <span>
+              <i className="tm-key research" /> Research available
+            </span>
             <span className="tm-legend-note">
               Release positions use publication dates. Select a point for
               details.
@@ -721,6 +763,12 @@ export default function Timeline({
                             resolution.data?.status === "resolved" &&
                             resolution.data.selected[pkg.name] ===
                               release.version;
+                          const hasResearch = research.data?.some(
+                            (entry) =>
+                              entry.package === pkg.name &&
+                              entry.version === release.version &&
+                              entry.sources.length > 0,
+                          );
                           const tested =
                             run.data?.package === pkg.name
                               ? run.data?.results?.find(
@@ -735,7 +783,7 @@ export default function Timeline({
                               style={{ left: position(date) }}
                               key={`${release.version}-${index}`}
                               title={`${pkg.name} ${release.version} · ${new Date(date).toLocaleDateString()}`}
-                              aria-label={`${pkg.name} version ${release.version}, released ${new Date(date).toLocaleDateString()}${isCurrent ? ", current" : ""}${isResolved ? ", resolver selected" : ""}${tested ? `, ${resultLabel(tested.status || "inconclusive")}` : ", not tested"}`}
+                              aria-label={`${pkg.name} version ${release.version}, released ${new Date(date).toLocaleDateString()}${isCurrent ? ", current" : ""}${isResolved ? ", resolver selected" : ""}${hasResearch ? ", research available" : ""}${tested ? `, ${resultLabel(tested.status || "inconclusive")}` : ", not tested"}`}
                               aria-pressed={isSelected}
                               onClick={() => choose(pkg.name, release.version)}
                             />
@@ -793,6 +841,82 @@ export default function Timeline({
                       )}
                     </p>
                   )}
+                  <section
+                    className="tm-release-research"
+                    aria-label="Release research"
+                  >
+                    <div className="tm-section-label">
+                      RELEASE RESEARCH <span>Advisory</span>
+                    </div>
+                    {research.isError && (
+                      <p className="tm-limit">Research could not be loaded.</p>
+                    )}
+                    {research.data
+                      ?.filter(
+                        (entry) =>
+                          entry.package === selection.name &&
+                          entry.version === selection.version,
+                      )
+                      .slice(0, 3)
+                      .map((entry, index) => (
+                        <details key={`${entry.searched_at}-${index}`}>
+                          <summary>
+                            Sources for {selection.version} ·{" "}
+                            {new Date(entry.searched_at).toLocaleDateString()}
+                          </summary>
+                          {entry.summary?.findings.map((finding, i) => (
+                            <p key={i}>
+                              <strong>{finding.category}:</strong>{" "}
+                              {finding.summary}{" "}
+                              {finding.source_urls.map((url, j) => (
+                                <a
+                                  key={url}
+                                  href={url}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                >
+                                  [Source {j + 1}]{" "}
+                                </a>
+                              ))}
+                            </p>
+                          ))}
+                          {entry.summary?.limitations.map((text, i) => (
+                            <p className="tm-limit" key={i}>
+                              {text}
+                            </p>
+                          ))}
+                          {entry.sources.map((source) => (
+                            <p key={source.url}>
+                              <a
+                                href={source.url}
+                                target="_blank"
+                                rel="noreferrer"
+                              >
+                                {source.title}
+                              </a>
+                              {source.published_date
+                                ? ` · ${new Date(source.published_date).toLocaleDateString()}`
+                                : " · publication date unknown"}
+                            </p>
+                          ))}
+                          <p className="tm-limit">
+                            Search findings and model interpretations do not
+                            indicate test success.
+                          </p>
+                        </details>
+                      ))}
+                    {research.data &&
+                      !research.data.some(
+                        (entry) =>
+                          entry.package === selection.name &&
+                          entry.version === selection.version,
+                      ) && (
+                        <p className="tm-limit">
+                          No release-specific research yet. Search this
+                          dependency and version in What’s new.
+                        </p>
+                      )}
+                  </section>
                   <div className="tm-resolution">
                     <div className="tm-section-label">
                       RESOLUTION{" "}
@@ -1092,6 +1216,77 @@ export default function Timeline({
                           reasoning or command logs.
                         </p>
                       </details>
+                    )}
+                    {!!run.data.agent_decisions?.length && (
+                      <details className="tm-agent-history" open>
+                        <summary>Agent plan and decisions</summary>
+                        <p className="tm-limit">
+                          Model-authored plans are provisional. Tool actions and
+                          exit codes are recorded observations, not proof of a
+                          verified repair.
+                        </p>
+                        <ol>
+                          {run.data.agent_decisions.map((event, index) => (
+                            <li key={`${event.at}-${index}`}>
+                              <time>
+                                {new Date(event.at * 1000).toLocaleTimeString()}
+                              </time>{" "}
+                              · {event.version} ·{" "}
+                              {event.kind.replaceAll("_", " ")}
+                              {event.turn ? ` ${event.turn}` : ""}
+                              {event.goal && (
+                                <p>
+                                  <strong>Goal:</strong> {event.goal}
+                                </p>
+                              )}
+                              {!!event.steps?.length && (
+                                <ul>
+                                  {event.steps.map((step, i) => (
+                                    <li key={i}>{step}</li>
+                                  ))}
+                                </ul>
+                              )}
+                              {event.limitations?.map((text, i) => (
+                                <p key={i}>{text}</p>
+                              ))}
+                              {event.text && <p>{event.text}</p>}
+                              {event.kind === "model" && !event.text && (
+                                <p>
+                                  The model provided no written decision for
+                                  this turn; it requested{" "}
+                                  {event.tool_count || 0} tool action(s).
+                                </p>
+                              )}
+                              {event.kind === "tool" && (
+                                <p>
+                                  Requested {event.tool}:{" "}
+                                  <code>{event.input}</code>
+                                </p>
+                              )}
+                              {event.kind === "tool_result" && (
+                                <p>
+                                  {event.tool}{" "}
+                                  {event.exit_code == null
+                                    ? "finished without an exit code"
+                                    : `exit ${event.exit_code}`}
+                                  {event.error ? ` · ${event.error}` : ""}
+                                </p>
+                              )}
+                            </li>
+                          ))}
+                        </ol>
+                      </details>
+                    )}
+                    {run.data.agent_decisions?.length === 0 && (
+                      <p className="tm-limit">
+                        No model decisions recorded for this experiment.
+                      </p>
+                    )}
+                    {!run.data.agent_decisions && (
+                      <p className="tm-limit">
+                        Detailed agent decisions were not recorded for this
+                        older experiment.
+                      </p>
                     )}
                     {run.data.baseline && (
                       <ResultCard title="Baseline" result={run.data.baseline} />

@@ -7,7 +7,13 @@ from unittest.mock import patch
 
 import httpx
 
-from server.timeline_execution import Sandbox, TimelineRuns, _archive, _patch_allowed
+from server.timeline_execution import (
+    Sandbox,
+    TimelineRuns,
+    _archive,
+    _patch_allowed,
+    _repair,
+)
 
 
 class ExecutionTests(unittest.TestCase):
@@ -135,6 +141,40 @@ class ExecutionTests(unittest.TestCase):
                 self.assertEqual(image, "snapshot")
                 self.assertEqual(stages, ["uploading", "image", "checkpoint"])
                 self.assertFalse(box.run.call_args.kwargs["network"])
+
+        asyncio.run(check())
+
+    def test_repair_emits_model_plan_and_uses_it_for_agent(self):
+        from unittest.mock import AsyncMock
+
+        async def check():
+            box = AsyncMock()
+            box.run.return_value = {"exit_code": 0, "stdout": "", "image_id": None}
+            plan = {
+                "goal": "Investigate",
+                "steps": ["Inspect source"],
+                "limitations": ["Unverified"],
+            }
+            events = []
+            with (
+                patch("server.agent.reason", new=AsyncMock(return_value=plan)),
+                patch(
+                    "server.agent.repair", new=AsyncMock(return_value="No patch")
+                ) as repair,
+            ):
+                result = await _repair(
+                    box,
+                    "candidate",
+                    "python -m unittest",
+                    "demo",
+                    "2",
+                    {"stdout": "failed", "stderr": ""},
+                    decision=events.append,
+                )
+            self.assertEqual(events[0]["kind"], "plan")
+            self.assertEqual(events[0]["steps"], ["Inspect source"])
+            self.assertIn("Inspect source", repair.call_args.args[0])
+            self.assertEqual(result["status"], "rejected")
 
         asyncio.run(check())
 

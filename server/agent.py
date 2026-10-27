@@ -139,6 +139,7 @@ async def repair(
     shell: Callable[[str], Awaitable[dict]],
     emit: Callable,
     search: Callable[[str], Awaitable[dict]] | None = None,
+    decision: Callable[[dict], None] | None = None,
 ) -> str:
     messages = [
         {"role": "system", "content": SYSTEM},
@@ -164,6 +165,15 @@ async def repair(
                 "model": MODEL,
             },
         )
+        if decision:
+            decision(
+                {
+                    "kind": "model",
+                    "turn": turn + 1,
+                    "text": message.get("content") or "",
+                    "tool_count": len(calls),
+                }
+            )
         if not calls:
             return (
                 message.get("content")
@@ -184,6 +194,15 @@ async def repair(
                     raise ValueError(
                         f"Supply a {field} string of 1 to {limit} characters."
                     )
+                if decision:
+                    decision(
+                        {
+                            "kind": "tool",
+                            "turn": turn + 1,
+                            "tool": name,
+                            "input": args[field],
+                        }
+                    )
                 if name == "shell":
                     result = await shell(args[field])
                 elif name == "search" and search:
@@ -194,6 +213,16 @@ async def repair(
                 result = {
                     "error": str(error)
                 }  # Tool-input errors go back to the agent for correction.
+            if decision:
+                decision(
+                    {
+                        "kind": "tool_result",
+                        "turn": turn + 1,
+                        "tool": call["function"].get("name", "unknown"),
+                        "exit_code": result.get("exit_code"),
+                        "error": result.get("error"),
+                    }
+                )
             messages.append(
                 {
                     "role": "tool",

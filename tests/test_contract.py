@@ -143,6 +143,45 @@ class Boundaries(unittest.IsolatedAsyncioTestCase):
         self.assertIn("independent verification", note)
         self.assertEqual(events[-1][1], "Repair turn budget reached")
 
+    async def test_agent_decisions_record_actual_tool_actions(self):
+        tool_message = {
+            "role": "assistant",
+            "content": "I will inspect the source.",
+            "tool_calls": [
+                {
+                    "id": "call-1",
+                    "type": "function",
+                    "function": {"name": "shell", "arguments": '{"command":"ls src"}'},
+                }
+            ],
+        }
+        final_message = {
+            "role": "assistant",
+            "content": "Inspection complete.",
+            "tool_calls": [],
+        }
+        decisions = []
+        with patch.object(
+            agent,
+            "completion",
+            AsyncMock(side_effect=[(tool_message, {}), (final_message, {})]),
+        ):
+            result = await agent.repair(
+                "Investigate",
+                AsyncMock(
+                    return_value={"exit_code": 3, "output": "private file output"}
+                ),
+                lambda *_: None,
+                decision=decisions.append,
+            )
+        self.assertEqual(result, "Inspection complete.")
+        self.assertEqual(
+            [x["kind"] for x in decisions], ["model", "tool", "tool_result", "model"]
+        )
+        self.assertEqual(decisions[1]["input"], "ls src")
+        self.assertEqual(decisions[2]["exit_code"], 3)
+        self.assertNotIn("private file output", str(decisions))
+
     async def test_subprocess_io_and_output_limit(self):
         result = await command(
             "python3",
