@@ -7,6 +7,7 @@ import re
 from contextlib import asynccontextmanager, suppress
 from typing import Annotated
 from urllib.parse import urlsplit
+from uuid import uuid4
 
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.responses import FileResponse, JSONResponse
@@ -27,6 +28,7 @@ from server.config import (
     BoundaryError,
     DiscoveryRequest,
     RunRequest,
+    safe_error,
 )
 from server.planning import Planner
 from server.sandbox import cleanup, command
@@ -42,6 +44,8 @@ submission_lock = asyncio.Lock()
 store: Store
 timeline_runs: TimelineRuns
 resolution_progress: dict[str, dict] = {}
+feed_refreshes: dict[str, dict] = {}
+feed_tasks: dict[str, asyncio.Task] = {}
 
 
 @asynccontextmanager
@@ -63,6 +67,9 @@ async def lifespan(app: FastAPI):
         with suppress(BoundaryError, OSError):
             await cleanup()
         yield
+        for task in feed_tasks.values():
+            task.cancel()
+        await asyncio.gather(*list(feed_tasks.values()), return_exceptions=True)
         for task in jobs.values():
             if not task.cancelling():
                 task.cancel()
@@ -365,6 +372,112 @@ async def timeline_analyze(spec: TimelineRequest):
         return await analyze_timeline(spec.source, spec.location)
     except (BoundaryError, ValueError, OSError) as error:
         raise HTTPException(400, str(error)) from error
+
+
+@app.get("/api/news/feed")
+async def news_feed():
+    return news.feed()
+
+
+@app.get("/api/news/feed-status")
+async def feed_status():
+    return next((feed_refreshes[key] for key in reversed(feed_refreshes)), None)
+
+
+class FeedRefreshRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    analysis_id: str | None = Field(default=None, pattern="^[0-9a-f]{32}$")
+    query: str = Field(default="", max_length=214)
+
+
+@app.post("/api/news/refresh", status_code=202)
+async def refresh_news(spec: FeedRefreshRequest):
+    if any(not task.done() for task in feed_tasks.values()):
+        raise HTTPException(409, "A feed refresh is already running.")
+    groups = [
+        group
+        for group in news.feed()["groups"]
+        if spec.query.strip().lower() in group["name"].lower()
+        and (
+            not spec.analysis_id
+            or any(
+                project["analysis_id"] == spec.analysis_id
+                for project in group["projects"]
+            )
+        )
+    ]
+    if not TAVILY_KEY:
+        raise HTTPException(400, "Add TAVILY_API_KEY to .env and restart the service.")
+    if not groups:
+        raise HTTPException(400, "Analyze a project before refreshing the feed.")
+    refresh_id = uuid4().hex
+    state = {
+        "id": refresh_id,
+        "status": "running",
+        "total": len(groups),
+        "completed": 0,
+        "failed": 0,
+        "current": None,
+        "errors": [],
+    }
+    feed_refreshes[refresh_id] = state
+
+    async def work():
+        try:
+            for group in groups:
+                state["current"] = group["name"]
+                try:
+                    await news.refresh_group(group)
+                except (BoundaryError, OSError, ValueError) as exc:
+                    state["failed"] += 1
+                    state["errors"].append(
+                        {"package": group["name"], "message": safe_error(exc)}
+                    )
+                state["completed"] += 1
+            state["status"] = "completed"
+        except asyncio.CancelledError:
+            state["status"] = "cancelled"
+            raise
+        except Exception as exc:  # noqa: BLE001 - preserve partial refresh results
+            state["status"] = "failed"
+            state["errors"].append(
+                {"package": state["current"], "message": safe_error(exc)}
+            )
+        finally:
+            state["current"] = None
+            feed_tasks.pop(refresh_id, None)
+
+    task = asyncio.create_task(work())
+    feed_tasks[refresh_id] = task
+
+    def completed(done: asyncio.Task):
+        if done.cancelled() and state["status"] == "cancelling":
+            state["status"] = "cancelled"
+            state["current"] = None
+            feed_tasks.pop(refresh_id, None)
+
+    task.add_done_callback(completed)
+    return state
+
+
+@app.get("/api/news/refresh/{refresh_id}")
+async def news_refresh_status(refresh_id: str):
+    state = feed_refreshes.get(refresh_id)
+    if not state:
+        raise HTTPException(404, "Feed refresh not found.")
+    return state
+
+
+@app.post("/api/news/refresh/{refresh_id}/cancel")
+async def cancel_news_refresh(refresh_id: str):
+    task = feed_tasks.get(refresh_id)
+    state = feed_refreshes.get(refresh_id)
+    if not state:
+        raise HTTPException(404, "Feed refresh not found.")
+    if task and not task.done():
+        task.cancel()
+        state["status"] = "cancelling"
+    return state
 
 
 class ResearchRequest(BaseModel):

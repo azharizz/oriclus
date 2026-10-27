@@ -96,10 +96,121 @@ async def investigate(analysis_id: str, package: str, version: str) -> dict:
         "summary": summary,
         "request_id": response.get("request_id"),
     }
+    _store(analysis_id, entry)
+    return entry
+
+
+def _store(analysis_id: str, entry: dict) -> None:
     records = saved(analysis_id)
     records.insert(0, entry)
     path = snapshot_path(analysis_id).parent / "research.json"
     temporary = path.with_suffix(".tmp")
     temporary.write_text(json.dumps(records[:100]))
     temporary.replace(path)
-    return entry
+
+
+def feed() -> dict:
+    """Collect local analyses and previously saved research by ecosystem and package."""
+    from packaging.utils import canonicalize_name
+
+    from server.time_machine import TIMELINES
+
+    def package_key(ecosystem: str, name: str) -> str:
+        return canonicalize_name(name) if ecosystem == "python" else name.lower()
+
+    groups = {}
+    projects = {}
+    for path in sorted(
+        TIMELINES.glob("*/analysis.json"), key=lambda p: p.stat().st_mtime, reverse=True
+    ):
+        try:
+            analysis = json.loads(path.read_text())
+            analysis_id = analysis["id"]
+            if (
+                not re.fullmatch(r"[a-f0-9]{32}", analysis_id)
+                or path.parent.name != analysis_id
+            ):
+                continue
+            key = analysis.get("project_key", analysis_id)
+            if key in projects:
+                for record in saved(analysis_id):
+                    group_key = (
+                        analysis["ecosystem"],
+                        package_key(analysis["ecosystem"], record.get("package", "")),
+                    )
+                    group = groups.get(group_key)
+                    if (
+                        group
+                        and any(
+                            p["analysis_id"] == projects[key]["analysis_id"]
+                            for p in group["projects"]
+                        )
+                        and not any(
+                            r.get("searched_at") == record.get("searched_at")
+                            and r.get("query") == record.get("query")
+                            for r in group["research"]
+                        )
+                    ):
+                        group["research"].append(record)
+                continue
+            project = {
+                "analysis_id": analysis_id,
+                "name": analysis.get("project_name")
+                or f"Project snapshot {analysis_id[:8]}",
+            }
+            projects[key] = project
+            records = saved(analysis_id)
+            for package in analysis.get("packages", []):
+                ecosystem = analysis["ecosystem"]
+                group_key = (ecosystem, package_key(ecosystem, package["name"]))
+                group = groups.setdefault(
+                    group_key,
+                    {
+                        "name": package["name"],
+                        "ecosystem": ecosystem,
+                        "projects": [],
+                        "latest": None,
+                        "research": [],
+                    },
+                )
+                group["projects"].append(
+                    {
+                        **project,
+                        "name_in_project": package["name"],
+                        "direct": package["direct"],
+                        "requirement": package.get("requirement", ""),
+                    }
+                )
+                for release in package.get("releases", []):
+                    if release.get("date") and (
+                        not group["latest"] or release["date"] > group["latest"]["date"]
+                    ):
+                        group["latest"] = {**release, "analysis_id": analysis_id, "package": package["name"]}
+                for record in records:
+                    if package_key(
+                        analysis["ecosystem"], record.get("package", "")
+                    ) == group_key[1] and not any(
+                        r.get("searched_at") == record.get("searched_at")
+                        and r.get("query") == record.get("query")
+                        for r in group["research"]
+                    ):
+                        group["research"].append(record)
+        except (OSError, ValueError, KeyError, TypeError, BoundaryError):
+            continue
+    for group in groups.values():
+        group["research"].sort(key=lambda r: r.get("searched_at", ""), reverse=True)
+        group["research"] = group["research"][:10]
+    return {
+        "projects": list(projects.values()),
+        "groups": sorted(
+            groups.values(), key=lambda g: (g["name"].lower(), g["ecosystem"])
+        ),
+    }
+
+
+async def refresh_group(group: dict) -> None:
+    """Search a shared package once, then retain the result with each project."""
+    first = group["projects"][0]
+    entry = await investigate(first["analysis_id"], first["name_in_project"], "")
+    for project in group["projects"][1:]:
+        _store(project["analysis_id"], {**entry, "package": project["name_in_project"]})

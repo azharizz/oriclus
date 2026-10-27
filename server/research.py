@@ -42,7 +42,7 @@ async def search(query: str) -> dict:
             "Tavily is not configured. Set TAVILY_API_KEY in .env for source grounding."
         )
     try:
-        async with httpx.AsyncClient(timeout=None) as client:
+        async with httpx.AsyncClient(timeout=30) as client:
             response = await client.post(
                 "https://api.tavily.com/search",
                 headers={"Authorization": f"Bearer {TAVILY_KEY}"},

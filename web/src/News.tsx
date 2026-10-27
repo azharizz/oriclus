@@ -1,32 +1,64 @@
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { ExternalLink, Search } from "lucide-react";
+import { ArrowRight, ExternalLink, RefreshCw, Search } from "lucide-react";
 import { api } from "./api";
 import "./news.css";
 
-type Release = { version: string; date: string | null };
-type Analysis = {
-  id: string;
-  ecosystem: string;
-  manager: string;
-  packages: { name: string; direct: boolean; releases: Release[] }[];
+type Source = {
+  title: string;
+  url: string;
+  content: string;
+  published_date?: string | null;
 };
-type Recent = { analysis_id: string; package: string; id: string };
 type Entry = {
   package: string;
   version: string | null;
   searched_at: string;
   query: string;
+  sources: Source[];
   summary?: {
     status: string;
     findings: { category: string; summary: string; source_urls: string[] }[];
     limitations: string[];
   };
-  sources: {
-    title: string;
-    url: string;
-    content: string;
-    published_date?: string | null;
+};
+type Project = {
+  analysis_id: string;
+  name: string;
+  name_in_project: string;
+  direct: boolean;
+  requirement: string;
+};
+type Group = {
+  name: string;
+  ecosystem: string;
+  projects: Project[];
+  latest: {
+    version: string;
+    date: string;
+    analysis_id: string;
+    package: string;
+  } | null;
+  research: Entry[];
+};
+type Feed = {
+  projects: { analysis_id: string; name: string }[];
+  groups: Group[];
+};
+type Refresh = {
+  id: string;
+  status: string;
+  total: number;
+  completed: number;
+  failed: number;
+  current: string | null;
+  errors: { package: string; message: string }[];
+};
+type Analysis = {
+  packages: {
+    name: string;
+    direct: boolean;
+    releases: { version: string; date: string | null }[];
   }[];
 };
 
@@ -39,29 +71,85 @@ export default function News({
   onAnalysis: (id: string) => void;
   onTimeline: (id: string, pkg: string, version: string) => void;
 }) {
+  const [filter, setFilter] = useState("");
+  const [project, setProject] = useState("");
+  const [limit, setLimit] = useState(30);
   const [name, setName] = useState("");
   const [version, setVersion] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const recent = useQuery({
-    queryKey: ["news-projects"],
-    queryFn: () => api<Recent[]>("/timeline/runs?limit=100"),
+  const feed = useQuery({
+    queryKey: ["news-feed"],
+    queryFn: () => api<Feed>("/news/feed"),
+    refetchOnWindowFocus: true,
+  });
+  const status = useQuery({
+    queryKey: ["news-feed-status"],
+    queryFn: () => api<Refresh | null>("/news/feed-status"),
+    refetchInterval: (query) =>
+      ["running", "cancelling"].includes(query.state.data?.status || "")
+        ? 1500
+        : false,
   });
   const analysis = useQuery({
     queryKey: ["news-analysis", analysisId],
     queryFn: () => api<Analysis>(`/timeline/analyses/${analysisId}`),
     enabled: !!analysisId,
   });
-  const history = useQuery({
-    queryKey: ["news", analysisId],
-    queryFn: () => api<Entry[]>(`/timeline/research/${analysisId}`),
-    enabled: !!analysisId,
-  });
-  const packages = analysis.data?.packages || [];
-  const dependency = packages.find((p) => p.name === name);
-  const choices = [
-    ...new Map((recent.data || []).map((r) => [r.analysis_id, r])).values(),
-  ];
+  const active = ["running", "cancelling"].includes(status.data?.status || "");
+  useEffect(() => {
+    if (
+      status.data?.status === "completed" ||
+      status.data?.status === "cancelled" ||
+      status.data?.status === "failed"
+    )
+      void feed.refetch();
+  }, [status.data?.status]);
+  const groups = useMemo(
+    () =>
+      (feed.data?.groups || [])
+        .filter(
+          (group) =>
+            group.name.toLowerCase().includes(filter.toLowerCase().trim()) &&
+            (!project ||
+              group.projects.some((item) => item.analysis_id === project)),
+        )
+        .sort(
+          (a, b) =>
+            (b.latest?.date || "").localeCompare(a.latest?.date || "") ||
+            a.name.localeCompare(b.name),
+        ),
+    [feed.data, filter, project],
+  );
+  const dependency = analysis.data?.packages.find((item) => item.name === name);
+  async function refresh() {
+    setBusy(true);
+    setError("");
+    try {
+      await api("/news/refresh", {
+        analysis_id: project || null,
+        query: filter.trim(),
+      });
+      await status.refetch();
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : "Could not refresh the feed.",
+      );
+    } finally {
+      setBusy(false);
+    }
+  }
+  async function cancel() {
+    if (!status.data) return;
+    try {
+      await api(`/news/refresh/${status.data.id}/cancel`, {});
+      await status.refetch();
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : "Could not cancel the refresh.",
+      );
+    }
+  }
   async function research() {
     if (!analysisId || !name) return;
     setBusy(true);
@@ -72,7 +160,7 @@ export default function News({
         package: name,
         version,
       });
-      await history.refetch();
+      await feed.refetch();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Research failed.");
     } finally {
@@ -80,192 +168,337 @@ export default function News({
     }
   }
   return (
-    <section className="news-page">
-      <header className="page-heading">
-        <h1>What’s new</h1>
-        <p>
-          Discover release notes, features and migration guidance for your
-          project’s dependencies.
-        </p>
-      </header>
-      <div className="news-setup">
-        <label>
-          Project
-          <select
-            value={analysisId || ""}
-            onChange={(e) => {
-              onAnalysis(e.target.value);
-              setName("");
-              setVersion("");
-            }}
-          >
-            <option value="">Choose a recent project</option>
-            {analysisId &&
-              !choices.some((r) => r.analysis_id === analysisId) && (
-                <option value={analysisId}>
-                  Current project · {analysisId.slice(0, 8)}
-                </option>
-              )}
-            {choices.map((r) => (
-              <option key={r.analysis_id} value={r.analysis_id}>
-                {r.package} · project {r.analysis_id.slice(0, 8)}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label>
-          Dependency
-          <select
-            value={name}
-            disabled={!analysis.data}
-            onChange={(e) => {
-              setName(e.target.value);
-              setVersion("");
-            }}
-          >
-            <option value="">Choose a dependency</option>
-            {packages.map((p) => (
-              <option key={p.name} value={p.name}>
-                {p.name}
-                {p.direct ? " · direct" : " · related"}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label>
-          Release
-          <select
-            value={version}
-            disabled={!dependency}
-            onChange={(e) => setVersion(e.target.value)}
-          >
-            <option value="">Latest and historical information</option>
-            {dependency?.releases.map((r) => (
-              <option value={r.version} key={r.version}>
-                {r.version}
-                {r.date
-                  ? ` · ${new Date(r.date).toLocaleDateString()}`
-                  : " · date unknown"}
-              </option>
-            ))}
-          </select>
-        </label>
-        <button className="primary" disabled={!name || busy} onClick={research}>
-          <Search size={15} />
-          {busy ? "Searching…" : "Search sources"}
+    <section className="feed-page">
+      <header className="feed-header">
+        <div>
+          <h1>What’s new</h1>
+          <p>Release intelligence for the dependencies across your projects.</p>
+        </div>
+        <button
+          className="primary"
+          disabled={busy || active || !groups.length}
+          onClick={refresh}
+        >
+          <RefreshCw size={15} /> Refresh feed
         </button>
+      </header>
+      <div className="feed-intro">
+        <div>
+          <strong>{feed.data?.groups.length ?? 0} libraries</strong>
+          <span>
+            {" "}
+            across {feed.data?.projects.length ?? 0} saved project analyses
+          </span>
+        </div>
         <p>
-          Search sends only the selected package name and version to Tavily.
-          These names may be private. Results are public sources, not proof of
-          compatibility. Searches may use credits.
+          The feed is saved locally. Refresh searches Tavily once per distinct
+          visible library and may use credits; package names, including private
+          names, are sent to Tavily. Returned excerpts may be sent to the
+          configured model. Use the project and name filters to limit the
+          search. Related entries may be optional and are not necessarily
+          installed.
         </p>
       </div>
-      {(error || analysis.error || history.error) && (
-        <p className="error" role="alert">
-          {error || analysis.error?.message || history.error?.message}
-        </p>
-      )}
-      {busy && (
-        <p role="status">
-          Searching public sources and preparing an evidence-based model
-          summary…
-        </p>
-      )}
-      {!analysisId && (
-        <p className="empty">
-          Open a project in Time Machine, or choose one from a recent
-          experiment.
-        </p>
-      )}
-      {analysisId && !history.isPending && !history.data?.length && (
-        <p className="empty">
-          Choose a dependency and search to build its source timeline.
-        </p>
-      )}
-      {history.data?.map((entry, index) => (
-        <article className="news-entry" key={`${entry.searched_at}-${index}`}>
-          <div className="news-entry-head">
-            <div>
-              <h2>
-                {entry.package} {entry.version || "· releases and features"}
-              </h2>
-              <p>
-                Searched {new Date(entry.searched_at).toLocaleString()} · Tavily
-                sources
-              </p>
-            </div>
-            {entry.version && (
-              <button
-                onClick={() =>
-                  onTimeline(analysisId!, entry.package, entry.version!)
-                }
-              >
-                Explore release
-              </button>
-            )}
+      {active && status.data && (
+        <div className="feed-progress" role="status">
+          <RefreshCw className="feed-spin" size={17} />
+          <div>
+            <strong>Researching {status.data.current || "libraries"}</strong>
+            <p>
+              {status.data.completed} of {status.data.total} completed ·{" "}
+              {status.data.failed} failed
+            </p>
           </div>
-          {entry.summary && (
-            <div className="news-summary">
-              <strong>Model interpretation · advisory</strong>
-              {entry.summary.findings.map((finding, i) => (
-                <p key={i}>
-                  <b>{finding.category}:</b> {finding.summary}{" "}
-                  {finding.source_urls.map((url, j) => (
-                    <a href={url} target="_blank" rel="noreferrer" key={url}>
-                      [Source {j + 1}]{" "}
-                    </a>
-                  ))}
-                </p>
+          <button
+            onClick={cancel}
+            disabled={status.data.status === "cancelling"}
+          >
+            Cancel
+          </button>
+        </div>
+      )}
+      {!active && status.data?.failed ? (
+        <p className="error" role="alert">
+          {status.data.failed} searches failed. Completed results are preserved.{" "}
+          {status.data.errors
+            .slice(0, 3)
+            .map((item) => `${item.package}: ${item.message}`)
+            .join(" · ")}
+        </p>
+      ) : null}
+      {error && (
+        <p className="error" role="alert">
+          {error}
+        </p>
+      )}
+      <div className="feed-tools">
+        <label className="feed-filter">
+          <Search size={16} />
+
+          <input
+            type="search"
+            aria-label="Filter libraries"
+            placeholder="Filter libraries"
+            value={filter}
+            onChange={(e) => {
+              setFilter(e.target.value);
+              setLimit(30);
+            }}
+          />
+        </label>
+        <label>
+          Project{" "}
+          <select
+            value={project}
+            onChange={(e) => {
+              setProject(e.target.value);
+              setLimit(30);
+            }}
+          >
+            <option value="">All projects</option>
+            {feed.data?.projects.map((item) => (
+              <option value={item.analysis_id} key={item.analysis_id}>
+                {item.name} · {item.analysis_id.slice(0, 6)}
+              </option>
+            ))}
+          </select>
+        </label>
+        <span>
+          {Math.min(limit, groups.length)} of {groups.length} shown
+        </span>
+      </div>
+      <details className="feed-specific">
+        <summary>Research a specific release</summary>
+        <div className="news-setup">
+          <label>
+            Project
+            <select
+              value={analysisId || ""}
+              onChange={(e) => {
+                onAnalysis(e.target.value);
+                setName("");
+                setVersion("");
+              }}
+            >
+              <option value="">Choose a project</option>
+              {feed.data?.projects.map((item) => (
+                <option value={item.analysis_id} key={item.analysis_id}>
+                  {item.name} · {item.analysis_id.slice(0, 6)}
+                </option>
               ))}
-              {entry.summary.limitations.map((limit, i) => (
-                <p key={i}>{limit}</p>
+            </select>
+          </label>
+          <label>
+            Dependency
+            <select
+              value={name}
+              disabled={!analysis.data}
+              onChange={(e) => {
+                setName(e.target.value);
+                setVersion("");
+              }}
+            >
+              <option value="">Choose a dependency</option>
+              {analysis.data?.packages.map((item) => (
+                <option key={item.name} value={item.name}>
+                  {item.name}
+                </option>
               ))}
-              {!entry.summary.findings.length &&
-                entry.summary.status === "completed" && (
-                  <p>No source-supported findings were returned.</p>
+            </select>
+          </label>
+          <label>
+            Release
+            <select
+              value={version}
+              disabled={!dependency}
+              onChange={(e) => setVersion(e.target.value)}
+            >
+              <option value="">All releases</option>
+              {dependency?.releases.map((item) => (
+                <option key={item.version} value={item.version}>
+                  {item.version}
+                </option>
+              ))}
+            </select>
+          </label>
+          <button disabled={!name || busy || active} onClick={research}>
+            {busy ? "Searching…" : "Search release"}
+          </button>
+        </div>
+        <p>
+          Search sends the selected dependency and version to Tavily; returned
+          excerpts may be sent to the configured model.
+        </p>
+      </details>
+      {feed.isPending ? (
+        <p role="status">Loading your feed…</p>
+      ) : feed.error ? (
+        <p className="error" role="alert">
+          {feed.error.message}
+        </p>
+      ) : !feed.data?.projects.length ? (
+        <div className="feed-empty">
+          <h2>Your feed starts with a project</h2>
+          <p>
+            Analyze a repository in Time Machine. Its dependencies will appear
+            here automatically.
+          </p>
+        </div>
+      ) : !groups.length ? (
+        <p className="empty">No libraries match this filter.</p>
+      ) : (
+        <div className="feed-list">
+          {groups.slice(0, limit).map((group) => (
+            <article
+              className="feed-item"
+              key={`${group.ecosystem}:${group.name}`}
+            >
+              <div className="feed-item-head">
+                <div>
+                  <div className="feed-item-meta">
+                    <span>
+                      {group.ecosystem === "node"
+                        ? "JavaScript"
+                        : group.ecosystem}
+                    </span>
+                    <span>·</span>
+                    <span>
+                      {group.projects.length} project{" "}
+                      {group.projects.length === 1 ? "analysis" : "analyses"}
+                    </span>
+                  </div>
+                  <h2>{group.name}</h2>
+                </div>
+                {group.latest && (
+                  <button
+                    className="feed-open"
+                    onClick={() =>
+                      onTimeline(
+                        group.latest!.analysis_id,
+                        group.latest!.package,
+                        group.latest!.version,
+                      )
+                    }
+                  >
+                    Explore timeline <ArrowRight size={14} />
+                  </button>
                 )}
-            </div>
-          )}
-          {entry.sources.length ? (
-            <ol className="news-list">
-              {[...entry.sources]
-                .sort(
-                  (a, b) =>
-                    (Date.parse(b.published_date || "") || 0) -
-                    (Date.parse(a.published_date || "") || 0),
-                )
-                .map((source) => (
-                  <li key={source.url}>
-                    <div className="news-date">
-                      {source.published_date &&
-                      !Number.isNaN(Date.parse(source.published_date))
-                        ? new Date(source.published_date).toLocaleDateString()
-                        : "Date unknown"}
-                    </div>
-                    <div>
-                      <a href={source.url} target="_blank" rel="noreferrer">
-                        {source.title} <ExternalLink size={13} />
-                      </a>
-                      <p>
-                        {source.content.length > 500
-                          ? `${source.content.slice(0, 500)}…`
-                          : source.content}
-                      </p>
-                      {source.content.length > 500 && (
-                        <details>
-                          <summary>Show full search excerpt</summary>
-                          <p>{source.content}</p>
-                        </details>
-                      )}
-                    </div>
-                  </li>
+              </div>
+              {group.latest ? (
+                <p className="feed-release">
+                  <strong>
+                    Most recently dated release: {group.latest.version}
+                  </strong>{" "}
+                  <span>
+                    ·{" "}
+                    {new Date(group.latest.date).toLocaleDateString(undefined, {
+                      year: "numeric",
+                      month: "short",
+                      day: "numeric",
+                    })}
+                  </span>
+                </p>
+              ) : (
+                <p className="feed-release">
+                  No dated release metadata available.
+                </p>
+              )}
+              <details className="feed-projects">
+                <summary>
+                  Used or declared in {group.projects.length}{" "}
+                  {group.projects.length === 1 ? "analysis" : "analyses"}
+                </summary>
+                {group.projects.map((item) => (
+                  <p key={item.analysis_id}>
+                    {item.name} ·{" "}
+                    {item.direct ? "direct" : "related; may be optional"} ·{" "}
+                    <code>{item.requirement || "unspecified"}</code>
+                  </p>
                 ))}
-            </ol>
-          ) : (
-            <p>No sources returned for this search.</p>
-          )}
-        </article>
-      ))}
+              </details>
+              {group.research.length ? (
+                <div className="feed-evidence">
+                  {group.research.slice(0, 2).map((entry, index) => (
+                    <div key={`${entry.searched_at}-${index}`}>
+                      <p className="feed-evidence-meta">
+                        {entry.version
+                          ? `Release ${entry.version}`
+                          : "Across releases"}{" "}
+                        · searched{" "}
+                        {new Date(entry.searched_at).toLocaleDateString()} ·
+                        sources and model interpretation
+                      </p>
+                      {entry.summary?.findings.slice(0, 2).map((finding, i) => (
+                        <p key={i}>
+                          <strong>{finding.category}:</strong> {finding.summary}{" "}
+                          {finding.source_urls.map((url, j) => (
+                            <a
+                              key={url}
+                              href={url}
+                              target="_blank"
+                              rel="noreferrer"
+                            >
+                              [{j + 1}]
+                            </a>
+                          ))}
+                        </p>
+                      ))}
+                      {entry.summary?.status === "unavailable" && (
+                        <p>
+                          Model summary unavailable. Review the sources
+                          directly.
+                        </p>
+                      )}
+                      <details>
+                        <summary>
+                          {entry.sources.length} source
+                          {entry.sources.length === 1 ? "" : "s"}
+                        </summary>
+                        {entry.sources.map((source) => (
+                          <p key={source.url}>
+                            <a
+                              href={source.url}
+                              target="_blank"
+                              rel="noreferrer"
+                            >
+                              {source.title} <ExternalLink size={12} />
+                            </a>{" "}
+                            ·{" "}
+                            {source.published_date &&
+                            !Number.isNaN(Date.parse(source.published_date))
+                              ? new Date(
+                                  source.published_date,
+                                ).toLocaleDateString()
+                              : "date unknown"}
+                          </p>
+                        ))}
+                      </details>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="feed-unsearched">
+                  No saved research yet. Refresh the feed to search public
+                  sources.
+                </p>
+              )}
+            </article>
+          ))}
+        </div>
+      )}
+      {groups.length > limit && (
+        <button
+          className="feed-more"
+          onClick={() => setLimit((value) => value + 30)}
+        >
+          Show more libraries
+        </button>
+      )}
+      <p className="feed-footnote">
+        Registry dates describe release availability. Source snippets and model
+        interpretations are advisory, not test results. Older project snapshots
+        may appear separately when their identity is unknown.
+      </p>
     </section>
   );
 }

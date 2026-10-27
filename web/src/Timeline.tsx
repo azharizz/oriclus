@@ -171,6 +171,15 @@ export default function Timeline({
   const [queued, setQueued] = useState<string[]>([]);
   const [showTransitive, setShowTransitive] = useState(true);
   const [zoom, setZoom] = useState(1);
+  const [tip, setTip] = useState<{
+    x: number;
+    y: number;
+    name: string;
+    version: string;
+    date: number;
+    status: string;
+    researched: boolean;
+  } | null>(null);
   const [testCommand, setTestCommand] = useState("");
   const [runId, setRunId] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -316,6 +325,17 @@ export default function Timeline({
   const years = dates.length
     ? Array.from({ length: yearEnd - yearStart + 1 }, (_, i) => yearStart + i)
     : [];
+  const months =
+    timelineWidth / Math.max(years.length, 1) >= 330
+      ? Array.from({ length: 12 }, (_, i) => i)
+      : [0, 3, 6, 9];
+  const monthLabel = (month: number) =>
+    months.length === 12
+      ? new Intl.DateTimeFormat(undefined, {
+          month: "short",
+          timeZone: "UTC",
+        }).format(new Date(Date.UTC(2024, month, 1)))
+      : `Q${month / 3 + 1}`;
   const visible = packages.filter((pkg) => pkg.direct || showTransitive);
   const selectedPackage = packages.find((pkg) => pkg.name === selection?.name);
   const undated =
@@ -448,6 +468,30 @@ export default function Timeline({
 
   return (
     <section className="time-machine">
+      {tip && (
+        <div
+          className="tm-tooltip"
+          id="release-tooltip"
+          role="tooltip"
+          style={{ left: tip.x, top: tip.y }}
+        >
+          <strong>
+            {tip.name} {tip.version}
+          </strong>
+          <span>
+            Released{" "}
+            {new Intl.DateTimeFormat(undefined, {
+              year: "numeric",
+              month: "long",
+              day: "numeric",
+              timeZone: "UTC",
+            }).format(new Date(tip.date))}
+          </span>
+          <span>{tip.status}</span>
+          {tip.researched && <span>Research available</span>}
+          <small>Select to inspect this release</small>
+        </div>
+      )}
       <header className="tm-heading">
         <div>
           <h1>Dependency time machine</h1>
@@ -666,6 +710,7 @@ export default function Timeline({
                 role="region"
                 aria-label="Dependency release timeline, scroll horizontally to explore"
                 tabIndex={0}
+                onScroll={() => setTip(null)}
               >
                 <div className="tm-grid" style={{ width: timelineWidth + 210 }}>
                   <div className="tm-axis">
@@ -678,12 +723,26 @@ export default function Timeline({
                     >
                       {years.map((year) => (
                         <span
+                          className="tm-year-label"
                           key={year}
-                          style={{ left: position(Date.UTC(year, 0, 1)) + 10 }}
+                          style={{ left: position(Date.UTC(year, 0, 1)) + 5 }}
                         >
                           {year}
                         </span>
                       ))}
+                      {years.flatMap((year) =>
+                        months.map((month) => (
+                          <span
+                            className="tm-month-label"
+                            key={`${year}-${month}`}
+                            style={{
+                              left: position(Date.UTC(year, month, 1)) + 5,
+                            }}
+                          >
+                            {monthLabel(month)}
+                          </span>
+                        )),
+                      )}
                     </div>
                   </div>
                   {visible.map((pkg) => (
@@ -782,13 +841,49 @@ export default function Timeline({
                                     result.version === release.version,
                                 )
                               : undefined;
+                          const showTip = (element: HTMLElement) => {
+                            const rect = element.getBoundingClientRect();
+                            setTip({
+                              x: Math.max(
+                                8,
+                                Math.min(
+                                  window.innerWidth - 260,
+                                  rect.left - 30,
+                                ),
+                              ),
+                              y:
+                                rect.bottom + 155 < window.innerHeight
+                                  ? rect.bottom + 10
+                                  : Math.max(8, rect.top - 140),
+                              name: pkg.name,
+                              version: release.version,
+                              date,
+                              status: tested
+                                ? resultLabel(tested.status || "inconclusive")
+                                : isResolved
+                                  ? "Resolver selected · not tested"
+                                  : "Not tested",
+                              researched: hasResearch,
+                            });
+                          };
                           return (
                             <button
                               type="button"
+                              onMouseEnter={(event) =>
+                                showTip(event.currentTarget)
+                              }
+                              onMouseLeave={() => setTip(null)}
+                              onFocus={(event) => showTip(event.currentTarget)}
+                              onBlur={() => setTip(null)}
+                              aria-describedby={
+                                tip?.name === pkg.name &&
+                                tip.version === release.version
+                                  ? "release-tooltip"
+                                  : undefined
+                              }
                               className={`tm-release ${isCurrent ? "is-current" : ""} ${isSelected ? "is-selected" : ""} ${isResolved ? "is-resolved" : ""} ${tested?.status === "passed" ? "is-tested-pass" : tested?.status === "failed" ? "is-tested-fail" : ""} ${hasResearch ? "has-research" : ""}`}
                               style={{ left: position(date) }}
                               key={`${release.version}-${index}`}
-                              title={`${pkg.name} ${release.version} · ${new Date(date).toLocaleDateString()}`}
                               aria-label={`${pkg.name} version ${release.version}, released ${new Date(date).toLocaleDateString()}${isCurrent ? ", current" : ""}${isResolved ? ", resolver selected" : ""}${hasResearch ? ", research available" : ""}${tested ? `, ${resultLabel(tested.status || "inconclusive")}` : ", not tested"}`}
                               aria-pressed={isSelected}
                               onClick={() => choose(pkg.name, release.version)}

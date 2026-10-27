@@ -117,3 +117,239 @@
 .news-summary a {
   color: var(--link);
 }
+
+.feed-page {
+  max-width: 1200px;
+}
+.feed-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 24px;
+  margin-bottom: 24px;
+}
+.feed-header h1 {
+  font-size: clamp(24px, 2.2vw, 31px);
+  letter-spacing: -0.035em;
+}
+.feed-header p {
+  color: var(--muted);
+  margin-top: 8px;
+}
+.feed-header button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  white-space: nowrap;
+}
+.feed-intro {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface);
+  padding: 18px 20px;
+}
+.feed-intro strong {
+  color: var(--ink);
+  font-size: 15px;
+}
+.feed-intro span,
+.feed-intro p,
+.feed-footnote {
+  color: var(--muted);
+}
+.feed-intro p {
+  margin-top: 7px;
+  font-size: 12px;
+}
+.feed-progress {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 14px;
+  margin-top: 14px;
+}
+.feed-progress svg {
+  color: var(--green);
+}
+.feed-progress p {
+  color: var(--muted);
+  font-size: 12px;
+}
+.feed-progress button {
+  margin-left: auto;
+}
+.feed-spin {
+  animation: feed-spin 1.6s linear infinite;
+}
+@keyframes feed-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .feed-spin {
+    animation: none;
+  }
+}
+.feed-tools {
+  display: flex;
+  gap: 14px;
+  align-items: center;
+  margin: 22px 0 14px;
+  color: var(--muted);
+  font-size: 12px;
+}
+.feed-tools > span {
+  margin-left: auto;
+  white-space: nowrap;
+}
+.feed-tools select,
+.feed-filter {
+  background: var(--surface);
+  color: var(--ink);
+  border: 1px solid #46464c;
+  border-radius: 8px;
+  min-height: 39px;
+  padding: 0 10px;
+}
+.feed-filter {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  max-width: 360px;
+}
+.feed-filter input {
+  background: transparent;
+  border: 0;
+  outline: 0;
+  color: var(--ink);
+  min-width: 0;
+  width: 100%;
+}
+.feed-filter:focus-within {
+  outline: 2px solid var(--link);
+  outline-offset: 2px;
+}
+.feed-specific {
+  border-bottom: 1px solid var(--line);
+  padding-bottom: 15px;
+  color: var(--muted);
+}
+.feed-specific > summary,
+.feed-projects summary,
+.feed-evidence summary {
+  color: var(--ink);
+  cursor: pointer;
+}
+.feed-specific > p {
+  font-size: 12px;
+}
+.feed-item {
+  padding: 24px 0;
+  border-bottom: 1px solid var(--line);
+}
+.feed-item-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+.feed-item h2 {
+  font-size: 19px;
+  margin-top: 4px;
+}
+.feed-item-meta,
+.feed-evidence-meta {
+  display: flex;
+  gap: 7px;
+  color: var(--muted);
+  font-size: 11px;
+}
+.feed-open {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  white-space: nowrap;
+}
+.feed-release {
+  margin: 14px 0 8px;
+}
+.feed-release span,
+.feed-unsearched {
+  color: var(--muted);
+}
+.feed-projects {
+  font-size: 12px;
+  color: var(--muted);
+}
+.feed-projects p,
+.feed-evidence p {
+  margin-top: 8px;
+  overflow-wrap: anywhere;
+}
+.feed-evidence {
+  margin-top: 16px;
+  padding: 14px 16px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+.feed-evidence > div + div {
+  border-top: 1px solid var(--line);
+  margin-top: 16px;
+  padding-top: 16px;
+}
+.feed-evidence a {
+  color: var(--link);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.feed-evidence a svg {
+  vertical-align: middle;
+}
+.feed-evidence details {
+  margin-top: 10px;
+  font-size: 12px;
+}
+.feed-unsearched {
+  margin-top: 14px;
+  font-size: 12px;
+}
+.feed-footnote {
+  font-size: 12px;
+  margin: 20px 0;
+}
+.feed-empty {
+  padding: 42px 0;
+  color: var(--muted);
+}
+.feed-empty h2 {
+  color: var(--ink);
+  font-size: 17px;
+}
+.feed-empty p {
+  margin-top: 8px;
+}
+@media (max-width: 700px) {
+  .feed-header,
+  .feed-item-head {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+  .feed-tools {
+    flex-wrap: wrap;
+  }
+  .feed-filter {
+    flex-basis: 100%;
+    max-width: none;
+  }
+  .feed-tools > span {
+    margin-left: 0;
+  }
+}
+.feed-more {
+  margin-top: 20px;
+}

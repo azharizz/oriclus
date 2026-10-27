@@ -1,6 +1,7 @@
 """Project snapshots and registry-backed dependency timelines."""
 
 import asyncio
+import hashlib
 import json
 import os
 import re
@@ -569,6 +570,10 @@ async def analyze(source: str, location: str) -> dict:
         result = {
             "id": analysis_id,
             "source": source,
+            "project_name": Path(location.rstrip("/")).name.removesuffix(".git"),
+            "project_key": hashlib.sha256(
+                f"{source}:{location.strip()}".encode()
+            ).hexdigest(),
             "ecosystem": ecosystem,
             "manager": manager,
             "packages": packages,

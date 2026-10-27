@@ -911,3 +911,39 @@
 .tm-agent-history li p {
   margin: 5px 0;
 }
+
+.tm-axis,
+.tm-axis-years {
+  height: 58px;
+}
+.tm-axis-label {
+  padding-top: 20px;
+}
+.tm-axis-years .tm-year-label {
+  top: 7px;
+  font-weight: 600;
+}
+.tm-axis-years .tm-month-label {
+  top: 32px;
+  color: #b9b9c2;
+  font-size: 10px;
+}
+.tm-tooltip {
+  position: fixed;
+  z-index: 100;
+  display: grid;
+  gap: 4px;
+  width: 250px;
+  padding: 12px 14px;
+  border: 1px solid #55545f;
+  border-radius: 8px;
+  background: #25252a;
+  color: var(--ink);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+  font-size: 12px;
+  pointer-events: none;
+}
+.tm-tooltip span,
+.tm-tooltip small {
+  color: #c0c0ca;
+}
