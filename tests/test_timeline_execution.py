@@ -112,12 +112,38 @@ class ExecutionTests(unittest.TestCase):
 
         asyncio.run(check())
 
+    def test_snapshot_progress_tracks_actual_operations(self):
+        from types import SimpleNamespace
+        from unittest.mock import AsyncMock
+
+        async def check():
+            with tempfile.TemporaryDirectory() as directory:
+                box = Sandbox.__new__(Sandbox)
+                box.upload = AsyncMock(return_value="upload-id")
+                box.sdk = SimpleNamespace(
+                    images=SimpleNamespace(
+                        oci=AsyncMock(
+                            return_value=SimpleNamespace(uuid="base", tag=None)
+                        )
+                    )
+                )
+                box.run = AsyncMock(
+                    return_value={"exit_code": 0, "image_id": "snapshot"}
+                )
+                stages = []
+                image = await box.project(Path(directory), "python", stages.append)
+                self.assertEqual(image, "snapshot")
+                self.assertEqual(stages, ["uploading", "image", "checkpoint"])
+                self.assertFalse(box.run.call_args.kwargs["network"])
+
+        asyncio.run(check())
+
     def test_cancelled_run_keeps_interrupted_evidence(self):
         async def check():
             started = asyncio.Event()
 
             class WaitingSandbox:
-                async def project(self, path, ecosystem):
+                async def project(self, path, ecosystem, progress=None):
                     started.set()
                     await asyncio.sleep(60)
 

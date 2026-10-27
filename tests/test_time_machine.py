@@ -82,6 +82,31 @@ class SnapshotTests(unittest.TestCase):
 
 
 class AnalyzeTests(unittest.IsolatedAsyncioTestCase):
+    async def test_pinned_registry_relationships_are_not_claimed_as_installed(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            project = root / "project"
+            project.mkdir()
+            (project / "requirements.txt").write_text("Flask==2.2.5\n")
+
+            async def declarations(_ecosystem, _name, _version):
+                return {"Jinja2": ">=3.0", "optional": ">=1; extra == 'dev'"}, True
+
+            async def releases(_client, _package, _ecosystem, _limiter):
+                pass
+
+            with (
+                patch.object(time_machine, "TIMELINES", root / "history"),
+                patch.object(time_machine, "version_requirements", declarations),
+                patch.object(time_machine, "_releases", releases),
+            ):
+                result = await time_machine.analyze("local", str(project))
+            related = {p["name"]: p for p in result["packages"] if not p["direct"]}
+            self.assertEqual(set(related), {"Jinja2", "optional"})
+            self.assertIsNone(related["Jinja2"]["current"])
+            self.assertIn("Flask 2.2.5", related["Jinja2"]["source"])
+            self.assertIn("extra", related["optional"]["requirement"])
+
     async def test_analysis_saves_local_project_without_changing_it(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

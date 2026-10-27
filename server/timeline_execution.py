@@ -14,6 +14,7 @@ import re
 import shlex
 import tarfile
 import tempfile
+from collections.abc import Callable
 from pathlib import Path, PurePosixPath
 from uuid import uuid4
 
@@ -170,9 +171,13 @@ class Sandbox:
             "operation_id": op,
         }
 
-    async def project(self, path: Path, ecosystem: str) -> str:
+    async def project(
+        self, path: Path, ecosystem: str, progress: Callable[[str], None] | None = None
+    ) -> str:
         if ecosystem not in IMAGES:
             raise BoundaryError(f"Unsupported Sandbox ecosystem: {ecosystem}.")
+        if progress:
+            progress("uploading")
         uploaded = await self.upload(await asyncio.to_thread(_archive, path))
         spec = {
             "/tmp/oriclus-project.tar.gz": {
@@ -182,8 +187,12 @@ class Sandbox:
                 "gid": 0,
             }
         }
+        if progress:
+            progress("image")
         base = await self.sdk.images.oci(IMAGES[ecosystem], timeout=600)
         image = str(base.uuid) if base.uuid else f"tag:{base.tag}"
+        if progress:
+            progress("checkpoint")
         result = await self.run(
             image,
             "mkdir -p /work/project && tar -xzf /tmp/oriclus-project.tar.gz -C /work/project && rm /tmp/oriclus-project.tar.gz",
@@ -197,10 +206,17 @@ class Sandbox:
         return result["image_id"]
 
 
-async def execute_snapshot(path: Path, script: str, ecosystem: str) -> dict:
+async def execute_snapshot(
+    path: Path,
+    script: str,
+    ecosystem: str,
+    progress: Callable[[str], None] | None = None,
+) -> dict:
     """Run resolver commands remotely, without touching the user's source tree."""
     box = Sandbox()
-    image = await box.project(path, ecosystem)
+    image = await box.project(path, ecosystem, progress)
+    if progress:
+        progress("resolving")
     return await box.run(image, script, network=True, timeout=300)
 
 
@@ -282,7 +298,13 @@ def _patch_allowed(paths: list[str]) -> bool:
 
 
 async def _repair(
-    box: Sandbox, image: str, command: str, package: str, version: str, failure: dict
+    box: Sandbox,
+    image: str,
+    command: str,
+    package: str,
+    version: str,
+    failure: dict,
+    progress: Callable[[str], None] | None = None,
 ) -> dict:
     from server import agent
 
@@ -297,9 +319,13 @@ async def _repair(
 
     async def shell(text: str) -> dict:
         nonlocal working
+        if progress:
+            progress("agent_tool")
         executed = await box.run(
             working, _test_environment(text), network=False, save=True, timeout=120
         )
+        if progress:
+            progress("investigating")
         if executed["image_id"]:
             working = executed["image_id"]
         return {
@@ -308,14 +334,18 @@ async def _repair(
         }
 
     try:
+        if progress:
+            progress("investigating")
         result["explanation"] = await agent.repair(
             f"Repair this project's production source for {package} {version}. The project is at /work/project; use the shell tool from that directory. "
             "Do not change tests, package manifests, locks, Git history, dependencies, or files outside the project. "
             f"Investigate the test output, edit existing production source, then run: {command}\n"
             f"Untrusted test output: {(failure['stdout'] + failure['stderr'])[-12000:]}",
             shell,
-            lambda *_: None,
+            lambda *_: progress("investigating") if progress else None,
         )
+        if progress:
+            progress("reviewing")
         names = await box.run(
             working, "git diff --name-only --no-ext-diff HEAD", network=False
         )
@@ -341,6 +371,8 @@ async def _repair(
                 "gid": 0,
             }
         }
+        if progress:
+            progress("verifying")
         verification = await box.run(
             image,
             f"git apply --check /tmp/oriclus-repair.patch && git apply /tmp/oriclus-repair.patch && ({_test_environment(command)})",
@@ -457,6 +489,12 @@ class TimelineRuns:
             "baseline": None,
             "results": [],
             "error": None,
+            "activity": {
+                "stage": "queued",
+                "version": None,
+                "index": 0,
+                "total": len(versions),
+            },
         }
         self._save(run)
         self.tasks[run["id"]] = asyncio.create_task(
@@ -474,16 +512,26 @@ class TimelineRuns:
         return run
 
     async def _work(self, run: dict, analysis: dict, path: Path) -> None:
+        def progress(stage: str, version: str | None = None, index: int = 0) -> None:
+            run["activity"] = {
+                "stage": stage,
+                "version": version,
+                "index": index,
+                "total": len(run["versions"]),
+            }
+            self._save(run)
+
         try:
             from server.time_machine import candidate_script
 
             run["status"] = "running"
             self._save(run)
             box = Sandbox()
-            common = await box.project(path, analysis["ecosystem"])
+            common = await box.project(path, analysis["ecosystem"], progress)
             run["shared_image_id"] = common
             self._save(run)
             bootstrap = "set -e; command -v git >/dev/null || (apt-get update -qq && apt-get install -y -qq git); git init -q && printf 'node_modules/\\n.venv/\\n__pycache__/\\n*.pyc\\n' >> .git/info/exclude && git config user.email oriclus@localhost && git config user.name Oriclus && git add --all && git commit -qm 'Snapshot' --allow-empty && "
+            progress("installing_baseline")
             prepared = await box.run(
                 common,
                 bootstrap + _install(analysis["manager"], analysis["ecosystem"], path),
@@ -497,12 +545,13 @@ class TimelineRuns:
                     "Baseline dependency installation failed; see preparation output."
                 )
             parent = prepared["image_id"]
+            progress("testing_baseline")
             baseline = await box.run(
                 parent, _test_environment(run["test_command"]), network=False
             )
             run["baseline"] = baseline
             self._save(run)
-            for version in run["versions"]:
+            for index, version in enumerate(run["versions"], start=1):
                 if analysis["ecosystem"] not in ("python", "node"):
                     raise BoundaryError(
                         "Sandbox tests currently support Python and JavaScript projects."
@@ -513,6 +562,7 @@ class TimelineRuns:
                 candidate_command = (
                     resolution_script + "\n" + _candidate_install(analysis["manager"])
                 )
+                progress("installing_candidate", version, index)
                 candidate = await box.run(
                     parent, candidate_command, network=True, save=True
                 )
@@ -523,6 +573,7 @@ class TimelineRuns:
                 }
                 if candidate["exit_code"] == 0 and candidate["image_id"]:
                     # Record candidate manifest edits as the repair starting point.
+                    progress("checkpointing_candidate", version, index)
                     tracked = await box.run(
                         candidate["image_id"],
                         "git add --all && git commit -qm 'Candidate' --allow-empty",
@@ -534,6 +585,7 @@ class TimelineRuns:
                             "Could not checkpoint the resolved candidate."
                         )
                     candidate_image = tracked["image_id"]
+                    progress("testing_candidate", version, index)
                     result = await box.run(
                         candidate_image,
                         _test_environment(run["test_command"]),
@@ -558,11 +610,15 @@ class TimelineRuns:
                             run["package"],
                             version,
                             result,
+                            lambda stage, version=version, index=index: progress(
+                                stage, version, index
+                            ),
                         )
                 if item not in run["results"]:
                     run["results"].append(item)
                 self._save(run)
             run["status"] = "completed"
+            progress("completed")
         except asyncio.CancelledError:
             run["status"] = "cancelled"
             run["error"] = (

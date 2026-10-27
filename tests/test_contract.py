@@ -22,6 +22,32 @@ EXAMPLE = json.loads(
 )
 
 
+class TimelineProgress(unittest.IsolatedAsyncioTestCase):
+    async def test_resolution_progress_reflects_recorded_stage_and_completion(self):
+        progress_id = "b" * 32
+        spec = api_module.TimelineSelection(
+            id="a" * 32, package="demo", version="1", progress_id=progress_id
+        )
+
+        async def resolve(_id, _package, _version, report):
+            report("resolving")
+            self.assertEqual(
+                (await api_module.timeline_resolution_progress(progress_id))["stage"],
+                "resolving",
+            )
+            return {"status": "resolved"}
+
+        with patch.object(api_module, "resolve_timeline", resolve):
+            self.assertEqual(
+                (await api_module.timeline_resolve(spec))["status"], "resolved"
+            )
+        self.assertEqual(
+            (await api_module.timeline_resolution_progress(progress_id))["status"],
+            "completed",
+        )
+        api_module.resolution_progress.pop(progress_id, None)
+
+
 class Contracts(unittest.TestCase):
     def test_input_contract(self):
         spec = RunRequest.model_validate(EXAMPLE)

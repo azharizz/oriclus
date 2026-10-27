@@ -3,6 +3,7 @@
 import asyncio
 import fcntl
 import json
+import re
 from contextlib import asynccontextmanager, suppress
 from typing import Annotated
 from urllib.parse import urlsplit
@@ -39,6 +40,7 @@ jobs: dict[str, asyncio.Task] = {}
 submission_lock = asyncio.Lock()
 store: Store
 timeline_runs: TimelineRuns
+resolution_progress: dict[str, dict] = {}
 
 
 @asynccontextmanager
@@ -345,6 +347,7 @@ class TimelineSelection(BaseModel):
     id: str = Field(pattern="^[0-9a-f]{32}$")
     package: str = Field(min_length=1, max_length=214)
     version: str = Field(min_length=1, max_length=128)
+    progress_id: str | None = Field(default=None, pattern="^[0-9a-f]{32}$")
 
 
 class TimelineRunRequest(BaseModel):
@@ -365,10 +368,59 @@ async def timeline_analyze(spec: TimelineRequest):
 
 @app.post("/api/timeline/resolve")
 async def timeline_resolve(spec: TimelineSelection):
+    if spec.progress_id:
+        if len(resolution_progress) >= 200:
+            for key in list(resolution_progress):
+                if resolution_progress[key]["status"] != "running":
+                    del resolution_progress[key]
+                    break
+        resolution_progress[spec.progress_id] = {"stage": "queued", "status": "running"}
+
+    def progress(stage: str):
+        if spec.progress_id:
+            resolution_progress[spec.progress_id] = {
+                "stage": stage,
+                "status": "running",
+            }
+
     try:
-        return await resolve_timeline(spec.id, spec.package, spec.version)
+        result = await resolve_timeline(spec.id, spec.package, spec.version, progress)
+        if spec.progress_id:
+            resolution_progress[spec.progress_id] = {
+                "stage": "completed",
+                "status": "completed",
+            }
+        return result
     except (BoundaryError, ValueError) as error:
+        if spec.progress_id:
+            resolution_progress[spec.progress_id] = {
+                "stage": "failed",
+                "status": "failed",
+            }
         raise HTTPException(400, str(error)) from error
+    except asyncio.CancelledError:
+        if spec.progress_id:
+            resolution_progress[spec.progress_id] = {
+                "stage": "cancelled",
+                "status": "cancelled",
+            }
+        raise
+    except Exception:
+        if spec.progress_id:
+            resolution_progress[spec.progress_id] = {
+                "stage": "failed",
+                "status": "failed",
+            }
+        raise
+
+
+@app.get("/api/timeline/resolution-progress/{progress_id}")
+async def timeline_resolution_progress(progress_id: str):
+    if not re.fullmatch(r"[0-9a-f]{32}", progress_id):
+        raise HTTPException(400, "Invalid progress ID.")
+    return resolution_progress.get(
+        progress_id, {"stage": "queued", "status": "running"}
+    )
 
 
 @app.get("/api/timeline/analyses/{analysis_id}")

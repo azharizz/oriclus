@@ -7,6 +7,7 @@ import re
 import shutil
 import tomllib
 import uuid
+from collections.abc import Callable
 from pathlib import Path
 from urllib.parse import quote
 
@@ -493,6 +494,65 @@ async def analyze(source: str, location: str) -> dict:
             warnings.append(
                 f"Multiple ecosystems detected; showing {ecosystem}. Choose the relevant project directory for other ecosystems."
             )
+        # Registry declarations are context, not proof of an installed dependency.
+        pinned = []
+        for item in packages:
+            if not item["direct"]:
+                continue
+            pattern = (
+                r"==([A-Za-z0-9][A-Za-z0-9._+!\-]*)"
+                if ecosystem == "python"
+                else r"([0-9]+\.[0-9]+\.[0-9]+(?:[-+][A-Za-z0-9.\-]+)?)"
+            )
+            match = re.fullmatch(pattern, item["requirement"])
+            if match and ecosystem in ("python", "node"):
+                pinned.append((item["name"], match.group(1)))
+        metadata_limiter = asyncio.Semaphore(8)
+
+        async def read_declarations(owner: str, version: str):
+            async with metadata_limiter:
+                declared, available = await version_requirements(
+                    ecosystem, owner, version
+                )
+            return owner, version, declared, available
+
+        declarations = await asyncio.gather(
+            *(read_declarations(owner, version) for owner, version in pinned[:25])
+        )
+        for owner, version, declared, available in declarations:
+            if not available:
+                continue
+            for name, requirement in declared.items():
+                existing = next(
+                    (
+                        p
+                        for p in packages
+                        if canonicalize_name(p["name"]) == canonicalize_name(name)
+                    ),
+                    None,
+                )
+                if existing:
+                    if existing.get("source", "").startswith("registry metadata:"):
+                        existing["requirement"] += (
+                            f"; {requirement} (declared by {owner} {version})"
+                        )
+                        existing["source"] += f", {owner} {version}"
+                    continue
+                packages.append(
+                    {
+                        "name": name,
+                        "requirement": requirement,
+                        "source": f"registry metadata: {owner} {version}",
+                        "marker": None,
+                        "current": None,
+                        "direct": False,
+                        "releases": [],
+                    }
+                )
+        if len(pinned) > 25:
+            warnings.append(
+                "Declared relationships were loaded for the first 25 pinned dependencies only."
+            )
         if len(packages) > 300:
             warnings.append(
                 "Only the first 300 dependencies are shown; refine the project for a complete view."
@@ -683,7 +743,12 @@ async def explain_conflict(output: str) -> dict | None:
         return None
 
 
-async def resolve(analysis_id: str, package: str, version: str) -> dict:
+async def resolve(
+    analysis_id: str,
+    package: str,
+    version: str,
+    progress: Callable[[str], None] | None = None,
+) -> dict:
     """Run the native dependency resolver on a disposable Sandbox copy."""
     from server.timeline_execution import execute_snapshot
 
@@ -694,7 +759,7 @@ async def resolve(analysis_id: str, package: str, version: str) -> dict:
     manager = analysis["manager"]
     script, ecosystem = candidate_script(analysis, package, version)
     result, (declared, metadata_available) = await asyncio.gather(
-        execute_snapshot(snapshot_path(analysis_id), script, ecosystem),
+        execute_snapshot(snapshot_path(analysis_id), script, ecosystem, progress),
         version_requirements(analysis["ecosystem"], package, version),
     )
     for name, requirement in declared.items():
@@ -727,6 +792,8 @@ async def resolve(analysis_id: str, package: str, version: str) -> dict:
                 "failed to select a version",
             )
         )
+        if conflict and progress:
+            progress("explaining")
         return {
             "status": "conflict" if conflict else "error",
             "selected": {},
@@ -768,6 +835,8 @@ async def resolve(analysis_id: str, package: str, version: str) -> dict:
         for name, value in selected.items()
     ):
         raise BoundaryError("The resolver returned an invalid dependency set.")
+    if progress:
+        progress("inspecting")
     # Show declarations from the resolved set without treating them as test proof.
     inspected = [(name, value) for name, value in selected.items() if name != package][
         :50

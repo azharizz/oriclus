@@ -30,13 +30,13 @@ Open http://127.0.0.1:8787. The API controls code execution and is designed for 
 
 ## Time machine
 
-Choose a public GitHub repository or an absolute local project directory. Oriclus snapshots files without modifying the source, reads supported manifests and fetches release metadata from public registries. The timeline aligns releases on publication dates; rows are direct dependencies with available transitive entries in lockfiles. Missing dates and metadata are shown as unknown. Choose a release to resolve a candidate set and inspect declared requirements. A resolution is not a test result.
+Choose a public GitHub repository or an absolute local project directory. Oriclus snapshots files without modifying the source, reads supported manifests and fetches release metadata from public registries. The timeline aligns releases on publication dates; rows include direct dependencies and related entries from lockfiles, resolved candidates, and registry declarations for up to 25 exactly pinned direct dependencies. Registry declarations can include optional dependencies and do not prove installation; unpinned releases require resolution for additional related entries. Missing dates and metadata are shown as unknown. Choose a release to resolve a candidate set and inspect declared requirements. A resolution is not a test result.
 
 To run an experiment, select up to five releases of a dependency, review the test command, and choose **Run Sandbox tests**. Oriclus prepares the project once, checks the baseline, branches each candidate, and runs the same selected tests offline. A passing baseline is required to classify a candidate as passed or failed; otherwise the comparison is inconclusive. For a new failure, Nemotron may propose a source patch, which is checked against the original tests on a fresh candidate branch. The patch is not applied to the user's project.
 
 Two deliberately small examples are available:
 
-- `examples/timeline-python`: MarkupSafe 2.0.1 to 2.1.5, test command `python -m unittest -v`.
+- `examples/timeline-python`: Flask, Werkzeug and MarkupSafe shown together; try MarkupSafe 2.0.1 to 2.1.5 with test command `python -m unittest -v`.
 - `examples/timeline-node`: minimatch 3.1.2 to 9.0.5, test command `npm test`.
 
 These examples demonstrate a breaking change; they are not claims about every application using those packages. Resolution and tests use registry access and Sandbox compute and can consume credits.

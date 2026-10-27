@@ -9,6 +9,7 @@ import {
   LoaderCircle,
 } from "lucide-react";
 import { api } from "./api";
+import ActivityVisual, { type Activity } from "./ActivityVisual";
 import "./timeline.css";
 
 type Release = { version: string; date: string | null };
@@ -75,6 +76,7 @@ type Experiment = {
   baseline?: Result | null;
   results: Result[];
   error?: string | null;
+  activity?: Activity | null;
 };
 type RecentExperiment = {
   id: string;
@@ -124,7 +126,7 @@ export default function Timeline() {
   const [error, setError] = useState("");
   const [selection, setSelection] = useState<Selection | null>(null);
   const [queued, setQueued] = useState<string[]>([]);
-  const [showTransitive, setShowTransitive] = useState(false);
+  const [showTransitive, setShowTransitive] = useState(true);
   const [zoom, setZoom] = useState(1);
   const [testCommand, setTestCommand] = useState("");
   const [runId, setRunId] = useState<string | null>(null);
@@ -146,6 +148,10 @@ export default function Timeline() {
     placeholderData: (previous) => previous,
   });
 
+  const resolutionProgressId = useMemo(
+    () => crypto.randomUUID().replaceAll("-", ""),
+    [analysis?.id, selection?.name, selection?.version],
+  );
   const resolution = useQuery({
     queryKey: [
       "timeline-resolution",
@@ -158,10 +164,19 @@ export default function Timeline() {
         id: analysis!.id,
         package: selection!.name,
         version: selection!.version,
+        progress_id: resolutionProgressId,
       }),
     enabled: !!analysis && !!selection,
     retry: false,
     staleTime: Infinity,
+  });
+  const resolutionActivity = useQuery({
+    queryKey: ["resolution-progress", resolutionProgressId],
+    queryFn: () =>
+      api<Activity>(`/timeline/resolution-progress/${resolutionProgressId}`),
+    enabled: !!analysis && !!selection && resolution.isFetching,
+    refetchInterval: 700,
+    retry: false,
   });
   const run = useQuery({
     queryKey: ["timeline-run", runId],
@@ -407,6 +422,9 @@ export default function Timeline() {
           test output and relevant source may be sent to Nemotron. Review your
           files and command before continuing.
         </p>
+        {loading && (
+          <ActivityVisual mode="scan" activity={{ stage: "scanning" }} />
+        )}
         {error && (
           <p role="alert" className="error">
             {error}
@@ -489,7 +507,8 @@ export default function Timeline() {
               <p>
                 {analysis.ecosystem} <span>·</span> {analysis.manager}{" "}
                 <span>·</span> {packages.filter((item) => item.direct).length}{" "}
-                direct dependencies
+                direct · {packages.filter((item) => !item.direct).length}{" "}
+                related
               </p>
             </div>
             <div className="tm-tools">
@@ -499,7 +518,7 @@ export default function Timeline() {
                   checked={showTransitive}
                   onChange={(event) => setShowTransitive(event.target.checked)}
                 />{" "}
-                Show transitive
+                Show related dependencies
               </label>
               <button
                 type="button"
@@ -586,7 +605,10 @@ export default function Timeline() {
                           {pkg.current
                             ? `Current ${pkg.current}`
                             : "Current unknown"}{" "}
-                          {!pkg.direct && " · transitive"}
+                          {!pkg.direct &&
+                            (pkg.source?.startsWith("registry metadata:")
+                              ? " · declared relation"
+                              : " · transitive")}
                         </span>
                         {pkg.metadata_error && (
                           <small
@@ -693,7 +715,9 @@ export default function Timeline() {
               )}
               <p className="tm-scroll-hint">
                 Scroll horizontally to explore the release history. Dates show
-                availability, not compatibility.
+                availability, not compatibility. Related rows come from
+                lockfiles, resolver results or registry declarations. Declared
+                relations can be optional and are not confirmed installed.
               </p>
             </div>
             <aside className="tm-detail" aria-label="Selected release details">
@@ -749,7 +773,10 @@ export default function Timeline() {
                       </span>
                     </div>
                     {resolution.isFetching ? (
-                      <p role="status">Resolving the selected version…</p>
+                      <ActivityVisual
+                        mode="resolution"
+                        activity={resolutionActivity.data}
+                      />
                     ) : resolution.error ? (
                       <p role="alert">{resolution.error.message}</p>
                     ) : resolution.data ? (
@@ -978,6 +1005,22 @@ export default function Timeline() {
                       {resultLabel(run.data.status)}{" "}
                       {run.data.error && `· ${run.data.error}`}
                     </div>
+                    {[
+                      "queued",
+                      "running",
+                      "preparing",
+                      "testing",
+                      "cancelling",
+                    ].includes(run.data.status) && (
+                      <ActivityVisual
+                        mode="run"
+                        activity={
+                          run.data.status === "cancelling"
+                            ? { stage: "cancelling" }
+                            : run.data.activity
+                        }
+                      />
+                    )}
                     {run.data.baseline && (
                       <ResultCard title="Baseline" result={run.data.baseline} />
                     )}
