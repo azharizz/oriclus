@@ -72,3 +72,15 @@ npm run build
 ```
 
 For local frontend work, run `npm run dev` alongside the API. Live Sandbox and inference tests require valid credentials, network access and credits. They are not a substitute for unit tests.
+
+### Repeat a uv comparison
+
+Run from the repository root:
+
+```sh
+uv run python -m scripts.benchmark_uv --trials 1
+```
+
+The default compares the bundled Python example, MarkupSafe 2.0.1 and 2.1.5, and `python -m unittest -v`. Use `--project`, `--package`, `--versions`, and `--test` for another supported pip project with a `requirements.txt` file; `--trials` accepts 1–5. Both paths use separate Nebius Sandbox branches from the same project and run the same candidate constraints and tests. The uv-only path installs with uv and does not perform an AI repair; Oriclus uses the project's pip resolver, records results and can run repair verification. Resolver choices, caching, network, image preparation and other work can differ, so matching outcomes do not imply identical environments or equal effort. The script prints trial data and denominators to the console without writing a comparison file. Oriclus experiment records are still saved in the local `.oriclus/` history. Sandbox and model calls can consume credits.
+
+Release-specific research appears on the main timeline as an outlined marker and is shown with citations in the selected release panel. General searches without a specific version do not imply relevance to an individual release. New experiments record a provisional model-authored plan and the public model messages, tool requests, and tool outcomes; older runs cannot reconstruct decisions they did not record. These are saved locally with the run and can include code or commands, so protect local history as project data. The plan is advisory and may change as the agent learns from tool results.

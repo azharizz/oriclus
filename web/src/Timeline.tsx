@@ -267,6 +267,15 @@ export default function Timeline({
     retry: false,
   });
 
+  const researched = useMemo(
+    () =>
+      new Set(
+        (research.data || [])
+          .filter((entry) => entry.version && entry.sources.length)
+          .map((entry) => JSON.stringify([entry.package, entry.version])),
+      ),
+    [research.data],
+  );
   const packages = useMemo(() => {
     const initial = analysis?.packages || [];
     const known = new Set(initial.map((item) => item.name.toLowerCase()));
@@ -763,11 +772,8 @@ export default function Timeline({
                             resolution.data?.status === "resolved" &&
                             resolution.data.selected[pkg.name] ===
                               release.version;
-                          const hasResearch = research.data?.some(
-                            (entry) =>
-                              entry.package === pkg.name &&
-                              entry.version === release.version &&
-                              entry.sources.length > 0,
+                          const hasResearch = researched.has(
+                            JSON.stringify([pkg.name, release.version]),
                           );
                           const tested =
                             run.data?.package === pkg.name
@@ -779,7 +785,7 @@ export default function Timeline({
                           return (
                             <button
                               type="button"
-                              className={`tm-release ${isCurrent ? "is-current" : ""} ${isSelected ? "is-selected" : ""} ${isResolved ? "is-resolved" : ""} ${tested?.status === "passed" ? "is-tested-pass" : tested?.status === "failed" ? "is-tested-fail" : ""}`}
+                              className={`tm-release ${isCurrent ? "is-current" : ""} ${isSelected ? "is-selected" : ""} ${isResolved ? "is-resolved" : ""} ${tested?.status === "passed" ? "is-tested-pass" : tested?.status === "failed" ? "is-tested-fail" : ""} ${hasResearch ? "has-research" : ""}`}
                               style={{ left: position(date) }}
                               key={`${release.version}-${index}`}
                               title={`${pkg.name} ${release.version} · ${new Date(date).toLocaleDateString()}`}
@@ -894,7 +900,8 @@ export default function Timeline({
                               >
                                 {source.title}
                               </a>
-                              {source.published_date
+                              {source.published_date &&
+                              dateValue(source.published_date) !== null
                                 ? ` · ${new Date(source.published_date).toLocaleDateString()}`
                                 : " · publication date unknown"}
                             </p>

@@ -32,3 +32,9 @@ The approved plan in the task conversation is the source of truth. This checklis
 - [x] Run a bounded uv-only comparison on the same example and versions; do not save an unfavorable comparison to a benchmark file.
 
 Scope notes: What’s New is manually refreshed and uses search-result publication dates when supplied; dates may be unknown and results can be incomplete. It is not an automatic monitor. Historical experiment records without timing cannot provide time-to-result metrics. Organization-wide private-repository analysis remains future work.
+
+## Agent decisions, release research and repeatable comparison
+
+- [x] Record the model's provisional plan, user-facing messages, requested tool actions and tool outcomes; surface plan failures without inventing a plan. Older records remain unchanged.
+- [x] Mark release-specific saved research on the main dependency timeline and show cited, advisory findings beside the selected release.
+- [x] Provide a repeatable uv-only versus Oriclus Sandbox comparison for supported pip requirements projects. Print trial results and denominators only; do not write a comparison file. Oriclus run records remain in local history.
