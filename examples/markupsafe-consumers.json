@@ -1,0 +1,28 @@
+{
+  "title": "MarkupSafe 2.1: Jinja and Mako portability",
+  "upstream": "https://github.com/pallets/markupsafe",
+  "baseline_ref": "2.0.1",
+  "candidate_ref": "2.1.5",
+  "package": "MarkupSafe",
+  "repair_attempts": 1,
+  "consumers": [
+    {
+      "repository": "https://github.com/pallets/jinja",
+      "ref": "2.11.3",
+      "install_command": "python -m pip install -e . 'pytest==7.4.4' 'markupsafe==2.0.1'",
+      "test_command": "python -m pytest tests/test_filters.py tests/test_api.py -q -W ignore::DeprecationWarning",
+      "editable_paths": [
+        "src/jinja2/"
+      ]
+    },
+    {
+      "repository": "https://github.com/sqlalchemy/mako",
+      "ref": "rel_1_1_6",
+      "install_command": "python -m pip install 'setuptools==69.5.1' wheel && python -m pip install --no-build-isolation -e . 'pytest==7.4.4' 'markupsafe==2.0.1' 'mock==5.1.0' 'pygments==2.17.2'",
+      "test_command": "python -m pytest test/test_filters.py -q -W ignore::DeprecationWarning",
+      "editable_paths": [
+        "mako/"
+      ]
+    }
+  ]
+}

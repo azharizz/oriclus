@@ -141,3 +141,17 @@ dist
 vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
 .vite/
+
+# Imported project runtime files
+.env
+.env.*
+!.env.example
+.venv/
+.oriclus/
+node_modules/
+dist/
+__pycache__/
+*.pyc
+.ruff_cache/
+.DS_Store
+.impeccable/

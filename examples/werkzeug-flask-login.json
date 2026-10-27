@@ -1,0 +1,19 @@
+{
+  "title": "Werkzeug 3: Flask-Login migration",
+  "upstream": "https://github.com/pallets/werkzeug",
+  "baseline_ref": "2.2.3",
+  "candidate_ref": "3.0.1",
+  "package": "Werkzeug",
+  "repair_attempts": 1,
+  "consumers": [
+    {
+      "repository": "https://github.com/maxcountryman/flask-login",
+      "ref": "0.6.2",
+      "install_command": "python -m pip install -e . 'pytest==7.3.1' 'flask==2.2.5' 'blinker==1.6.2' 'itsdangerous==2.1.2' 'jinja2==3.1.2' 'click==8.1.7' 'werkzeug==2.2.3' 'semantic_version==2.10.0' 'asgiref==3.6.0'",
+      "test_command": "python -m pytest tests/test_login.py -q -W ignore::DeprecationWarning",
+      "editable_paths": [
+        "src/flask_login/"
+      ]
+    }
+  ]
+}
