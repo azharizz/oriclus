@@ -14,6 +14,7 @@ import {
 import mark from "./mark.svg";
 import News from "./News";
 import Metrics from "./Metrics";
+import ExperimentHistory from "./ExperimentHistory";
 import Timeline from "./Timeline";
 import RunView from "./RunView";
 import { Pager, Status } from "./ui";
@@ -32,7 +33,7 @@ const subscribeLocation = (changed: () => void) => {
 };
 const locationSnapshot = () => window.location.search;
 
-function History({
+function LegacyHistory({
   onOpen,
   onNew,
 }: {
@@ -169,6 +170,7 @@ export default function App() {
   const search = useSyncExternalStore(subscribeLocation, locationSnapshot);
   const params = new URLSearchParams(search);
   const runId = params.get("run");
+  const timelineRunId = params.get("timeline_run");
   const page = params.get("page") || "timeline";
   const [analysisId, setAnalysisId] = useState<string | null>(null);
   const [timelineTarget, setTimelineTarget] = useState<{
@@ -293,7 +295,12 @@ export default function App() {
         {runId ? (
           <RunView key={runId} id={runId} />
         ) : page === "history" ? (
-          <History onOpen={open} onNew={newCheck} />
+          <ExperimentHistory
+            onOpen={(id) => navigate(`?timeline_run=${encodeURIComponent(id)}`)}
+            onNew={newCheck}
+          >
+            <LegacyHistory onOpen={open} onNew={newCheck} />
+          </ExperimentHistory>
         ) : page === "settings" ? (
           <>
             <header className="page-heading">
@@ -360,6 +367,7 @@ export default function App() {
             onAnalysis={setAnalysisId}
             target={timelineTarget}
             onTargetHandled={() => setTimelineTarget(null)}
+            initialRunId={timelineRunId}
           />
         )}
       </main>

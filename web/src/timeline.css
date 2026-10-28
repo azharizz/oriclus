@@ -299,6 +299,27 @@
 .tm-row {
   display: flex;
 }
+.tm-grid {
+  position: relative;
+}
+.tm-connections {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 1;
+  overflow: visible;
+}
+.tm-connections line {
+  stroke: #aaa4ff;
+  stroke-width: 1.5;
+  stroke-opacity: 0.7;
+}
+.tm-connection-key {
+  display: inline-block;
+  width: 18px;
+  border-top: 2px solid #aaa4ff;
+  vertical-align: middle;
+}
 .tm-axis {
   position: sticky;
   top: 0;
@@ -373,6 +394,18 @@
   position: relative;
   flex: none;
   height: 90px;
+}
+.tm-experiment .tm-dependency-repair {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 14px 0;
+  line-height: 1.5;
+}
+.tm-experiment .tm-dependency-repair input {
+  min-height: 0;
+  width: auto;
+  margin-top: 3px;
 }
 .tm-track-line {
   height: 1px;

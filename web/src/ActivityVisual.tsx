@@ -26,6 +26,12 @@ const labels: Record<string, string> = {
   agent_tool: "Running an agent-requested command offline",
   reviewing: "Checking the proposed patch",
   verifying: "Verifying the patch in a fresh branch",
+  dependency_planning: "Nemotron is proposing dependency version changes",
+  dependency_research: "Researching public dependency release information",
+  dependency_resolving: "Resolving the proposed dependency changes",
+  dependency_installing: "Installing the proposed files in a fresh branch",
+  dependency_verifying:
+    "Running the original tests against the proposed dependencies",
   cancelling: "Requesting cancellation",
 };
 
@@ -47,6 +53,11 @@ const group: Record<string, number> = {
   agent_tool: 3,
   reviewing: 3,
   verifying: 4,
+  dependency_planning: 3,
+  dependency_research: 3,
+  dependency_resolving: 1,
+  dependency_installing: 4,
+  dependency_verifying: 4,
 };
 
 export default function ActivityVisual({

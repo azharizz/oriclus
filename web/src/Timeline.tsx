@@ -37,6 +37,7 @@ type Resolution = {
   status: "resolved" | "conflict" | "unsupported" | "error";
   selected: Record<string, string>;
   requirements: Record<string, string>;
+  edges?: { source: string; target: string; requirement: string }[];
   message: string;
   packages?: Dependency[];
   explanation_status?: "completed" | "unavailable" | "not_requested";
@@ -51,6 +52,18 @@ type Result = {
   combination?: Record<string, string>;
   resolution_status?: "succeeded" | "failed_or_inconclusive";
   repair_pending?: boolean;
+  dependency_repair?: {
+    status: string;
+    explanation: string | null;
+    changes: { package: string; version: string }[];
+    research?: { title: string; url: string; content: string }[];
+    combination?: Record<string, string>;
+    patch: string | null;
+    error: string | null;
+    verification: Result | null;
+    independent_installation?: Result | null;
+  } | null;
+  dependency_repairs?: NonNullable<Result["dependency_repair"]>[];
   status?: string;
   exit_code?: number | null;
   stdout?: string;
@@ -76,6 +89,7 @@ type Result = {
 };
 type Experiment = {
   id: string;
+  analysis_id: string;
   status: string;
   package: string;
   goal?: { package: string; version: string } | null;
@@ -165,10 +179,12 @@ export default function Timeline({
   onAnalysis,
   target,
   onTargetHandled,
+  initialRunId,
 }: {
   onAnalysis: (id: string) => void;
   target: { id: string; package: string; version: string } | null;
   onTargetHandled: () => void;
+  initialRunId?: string | null;
 }) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const [source, setSource] = useState<"github" | "local">("github");
@@ -179,6 +195,7 @@ export default function Timeline({
   const [selection, setSelection] = useState<Selection | null>(null);
   const [queued, setQueued] = useState<Selection[]>([]);
   const [goalChoice, setGoalChoice] = useState("");
+  const [allowDependencyRepair, setAllowDependencyRepair] = useState(true);
   const [showTransitive, setShowTransitive] = useState(true);
   const [zoom, setZoom] = useState(1);
   const [tip, setTip] = useState<{
@@ -195,6 +212,35 @@ export default function Timeline({
   const [submitting, setSubmitting] = useState(false);
   const [runError, setRunError] = useState("");
   const [recentLimit, setRecentLimit] = useState(10);
+
+  useEffect(() => {
+    if (!initialRunId) return;
+    let live = true;
+    api<Experiment>(`/timeline/runs/${encodeURIComponent(initialRunId)}`)
+      .then(async (experiment) => {
+        const saved = await api<Analysis>(
+          `/timeline/analyses/${encodeURIComponent(experiment.analysis_id)}`,
+        );
+        if (live) {
+          setAnalysis(saved);
+          onAnalysis(saved.id);
+          setSelection(null);
+          setRunId(experiment.id);
+          setTestCommand(experiment.test_command);
+        }
+      })
+      .catch((err) => {
+        if (live)
+          setError(
+            err instanceof Error
+              ? err.message
+              : "Could not open this experiment.",
+          );
+      });
+    return () => {
+      live = false;
+    };
+  }, [initialRunId, onAnalysis]);
 
   useEffect(() => {
     if (!target) return;
@@ -347,6 +393,36 @@ export default function Timeline({
         }).format(new Date(Date.UTC(2024, month, 1)))
       : `Q${month / 3 + 1}`;
   const visible = packages.filter((pkg) => pkg.direct || showTransitive);
+  const resolvePoint = (name: string) => {
+    const index = visible.findIndex(
+      (pkg) =>
+        pkg.name.toLowerCase().replace(/[-_.]+/g, "-") ===
+        name.toLowerCase().replace(/[-_.]+/g, "-"),
+    );
+    if (index < 0 || !resolution.data) return null;
+    const selected = Object.entries(resolution.data.selected).find(
+      ([key]) =>
+        key.toLowerCase().replace(/[-_.]+/g, "-") ===
+        name.toLowerCase().replace(/[-_.]+/g, "-"),
+    )?.[1];
+    const date = dateValue(
+      visible[index].releases.find((release) => release.version === selected)
+        ?.date || null,
+    );
+    return date === null
+      ? null
+      : { x: 210 + position(date), y: 40 + index * 90 + 45 };
+  };
+  const resolvedEdges =
+    resolution.data?.status === "resolved"
+      ? (resolution.data.edges || []).flatMap((edge) => {
+          const source = resolvePoint(edge.source),
+            target = resolvePoint(edge.target);
+          return source && target
+            ? [{ ...edge, from: source, to: target }]
+            : [];
+        })
+      : [];
   const selectedPackage = packages.find((pkg) => pkg.name === selection?.name);
   const selections = queued.reduce<Record<string, string[]>>((groups, item) => {
     (groups[item.name] ||= []).push(item.version);
@@ -475,6 +551,7 @@ export default function Timeline({
         package: queued[0].name,
         versions: selections[queued[0].name],
         selections,
+        dependency_repair: allowDependencyRepair,
         goal: queued.find((item) => JSON.stringify(item) === goalChoice)
           ? {
               package: JSON.parse(goalChoice).name,
@@ -768,6 +845,11 @@ export default function Timeline({
             <span>
               <i className="tm-key resolved" /> Resolver selected
             </span>
+            {resolvedEdges.length > 0 && (
+              <span>
+                <i className="tm-connection-key" /> Declared dependency
+              </span>
+            )}
             <span>
               <i className="tm-key release" /> Available release
             </span>
@@ -822,6 +904,24 @@ export default function Timeline({
                       )}
                     </div>
                   </div>
+                  {resolvedEdges.length > 0 && (
+                    <svg
+                      className="tm-connections"
+                      width={timelineWidth + 210}
+                      height={40 + visible.length * 90}
+                      aria-hidden="true"
+                    >
+                      {resolvedEdges.map((edge, index) => (
+                        <line
+                          key={`${edge.source}-${edge.target}-${index}`}
+                          x1={edge.from.x}
+                          y1={edge.from.y}
+                          x2={edge.to.x}
+                          y2={edge.to.y}
+                        />
+                      ))}
+                    </svg>
+                  )}
                   {visible.map((pkg) => (
                     <div className="tm-row" key={pkg.name}>
                       <div className="tm-package">
@@ -986,7 +1086,9 @@ export default function Timeline({
                 Scroll horizontally to explore the release history. Dates show
                 availability, not compatibility. Related rows come from
                 lockfiles, resolver results or registry declarations. Declared
-                relations can be optional and are not confirmed installed.
+                relations can be optional and are not confirmed installed. Lines
+                connect resolver-selected releases with declared requirements;
+                they do not establish a passing test.
               </p>
             </div>
             <aside className="tm-detail" aria-label="Selected release details">
@@ -1204,6 +1306,31 @@ export default function Timeline({
                             </dl>
                           </details>
                         )}
+                        {!!resolution.data.edges?.length && (
+                          <details>
+                            <summary>
+                              Declared connections (
+                              {resolution.data.edges.length}){" "}
+                              <ChevronDown size={14} />
+                            </summary>
+                            <dl>
+                              {resolution.data.edges.map((edge, index) => (
+                                <div
+                                  key={`${edge.source}-${edge.target}-${index}`}
+                                >
+                                  <dt>
+                                    {edge.source} → {edge.target}
+                                  </dt>
+                                  <dd>{edge.requirement || "Any version"}</dd>
+                                </div>
+                              ))}
+                            </dl>
+                            <p className="tm-limit">
+                              Declarations can be optional or conditional. A
+                              line does not mean the combination passed tests.
+                            </p>
+                          </details>
+                        )}
                       </>
                     ) : (
                       <p>Resolution has not started.</p>
@@ -1312,6 +1439,20 @@ export default function Timeline({
                         onChange={(event) => setTestCommand(event.target.value)}
                         placeholder="e.g. python -m pytest"
                       />
+                    </label>
+                    <label className="tm-dependency-repair">
+                      <input
+                        type="checkbox"
+                        checked={allowDependencyRepair}
+                        onChange={(event) =>
+                          setAllowDependencyRepair(event.target.checked)
+                        }
+                      />{" "}
+                      If a source repair fails, let Nemotron propose dependency
+                      changes and reinstall them in a fresh Sandbox. When Tavily
+                      is configured, dependency names, the selected version, and
+                      an extracted error keyword may be sent for public
+                      research.
                     </label>
                     <button
                       type="button"
@@ -1641,6 +1782,14 @@ export default function Timeline({
                                       : result.repair
                                         ? resultLabel(result.repair.status)
                                         : "Not attempted"}
+                                    {result.dependency_repair && (
+                                      <div>
+                                        Dependency proposal:{" "}
+                                        {resultLabel(
+                                          result.dependency_repair.status,
+                                        )}
+                                      </div>
+                                    )}
                                   </td>
                                 </tr>
                               ))}
@@ -1776,6 +1925,77 @@ function ResultCard({ title, result }: { title: string; result: Result }) {
             </p>
           </section>
         )}
+        {(
+          result.dependency_repairs ||
+          (result.dependency_repair ? [result.dependency_repair] : [])
+        ).map((proposal, index) => (
+          <section className="tm-repair" key={index}>
+            <h3>Dependency change proposal {index + 1}</h3>
+            <p>
+              <strong>
+                {proposal.status === "verified"
+                  ? "Changed dependencies passed selected tests"
+                  : `Dependency repair ${proposal.status}`}
+              </strong>
+            </p>
+            {proposal.explanation && <p>{proposal.explanation}</p>}
+            {proposal.changes?.length > 0 && (
+              <p>
+                Proposed:{" "}
+                {proposal.changes
+                  .map((change) => `${change.package} ${change.version}`)
+                  .join(" · ")}
+              </p>
+            )}
+            {!!proposal.research?.length && (
+              <details>
+                <summary>Research sources (advisory)</summary>
+                <ul>
+                  {proposal.research.map((source, index) => (
+                    <li key={`${source.url}-${index}`}>
+                      <a href={source.url} target="_blank" rel="noreferrer">
+                        {source.title || source.url}
+                      </a>
+                    </li>
+                  ))}
+                </ul>
+                <p className="tm-limit">
+                  Sources help the agent investigate; they are not proof of
+                  compatibility.
+                </p>
+              </details>
+            )}
+            {proposal.error && <p role="alert">{proposal.error}</p>}
+            {proposal.patch && (
+              <details>
+                <summary>View dependency and lockfile changes</summary>
+                <pre>{proposal.patch}</pre>
+              </details>
+            )}
+            {proposal.independent_installation && (
+              <details>
+                <summary>
+                  Fresh branch installation · exit{" "}
+                  {proposal.independent_installation.exit_code ?? "unknown"}
+                </summary>
+                <pre>
+                  {proposal.independent_installation.stdout}
+                  {proposal.independent_installation.stderr}
+                </pre>
+              </details>
+            )}
+            {proposal.verification && (
+              <ResultCard
+                title="Independent dependency verification"
+                result={proposal.verification}
+              />
+            )}
+            <p className="tm-limit">
+              The proposal changes a separate Sandbox branch; review the patch
+              before using it. It is not applied to your project.
+            </p>
+          </section>
+        ))}
       </div>
     </details>
   );

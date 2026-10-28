@@ -1,0 +1,31 @@
+.experiment-history {
+  max-width: 1100px;
+}
+.experiment-history .page-heading p {
+  margin-top: 8px;
+  color: var(--muted);
+}
+.experiment-row small {
+  overflow-wrap: anywhere;
+}
+.experiment-status {
+  color: var(--muted);
+  text-transform: capitalize;
+}
+.history-note {
+  color: var(--muted);
+  font-size: 12px;
+  margin-top: 18px;
+}
+.legacy-history {
+  margin-top: 32px;
+  border-top: 1px solid var(--line);
+  padding-top: 20px;
+}
+.legacy-history > summary {
+  color: var(--muted);
+  cursor: pointer;
+}
+.legacy-history > header {
+  margin-top: 24px;
+}
