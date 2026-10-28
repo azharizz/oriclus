@@ -201,6 +201,7 @@ export default function Timeline({
   const scrollRef = useRef<HTMLDivElement>(null);
   const [source, setSource] = useState<"github" | "local">("github");
   const [location, setLocation] = useState("");
+  const [directory, setDirectory] = useState("");
   const [analysis, setAnalysis] = useState<Analysis | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -528,15 +529,22 @@ export default function Timeline({
       const result = await api<Analysis>("/timeline/analyze", {
         source,
         location: location.trim(),
+        directory: directory.trim(),
       });
       setAnalysis(result);
       onAnalysis(result.id);
       setTestCommand(
-        result.ecosystem === "python"
-          ? "python -m pytest"
-          : result.ecosystem === "node"
-            ? "npm test"
-            : "",
+        result.manager === "bun"
+          ? "bun test"
+          : result.ecosystem === "go"
+            ? "go test ./..."
+            : result.ecosystem === "rust"
+              ? "cargo test --offline --locked"
+              : result.ecosystem === "python"
+                ? "python -m pytest"
+                : result.ecosystem === "node"
+                  ? "npm test"
+                  : "",
       );
     } catch (err) {
       setError(
@@ -598,7 +606,9 @@ export default function Timeline({
         package: queued[0].name,
         versions: selections[queued[0].name],
         selections,
-        dependency_repair: allowDependencyRepair,
+        dependency_repair:
+          allowDependencyRepair &&
+          !["bun", "go", "cargo"].includes(analysis.manager),
         goal: queued.find((item) => JSON.stringify(item) === goalChoice)
           ? {
               package: JSON.parse(goalChoice).name,
@@ -738,6 +748,23 @@ export default function Timeline({
             )}
           </button>
         </div>
+        <details className="tm-project-scope">
+          <summary>Use a project subdirectory</summary>
+          <label>
+            Relative project directory
+            <input
+              value={directory}
+              onChange={(event) => setDirectory(event.target.value)}
+              placeholder="e.g. packages/frontend"
+            />
+          </label>
+          <p>
+            Only this directory is saved for the experiment. Parent workspace
+            files and sibling projects are excluded, so projects that need them
+            may not work. For GitHub, the repository is fetched in the Sandbox
+            before this directory is selected.
+          </p>
+        </details>
         <p className="tm-source-note">
           Resolving or testing sends local project files or fetches the recorded
           public GitHub commit in Nebius Sandboxes. Failed test output and
@@ -1521,25 +1548,33 @@ export default function Timeline({
                         placeholder="e.g. python -m pytest"
                       />
                     </label>
-                    <label className="tm-dependency-repair">
-                      <input
-                        type="checkbox"
-                        checked={allowDependencyRepair}
-                        onChange={(event) =>
-                          setAllowDependencyRepair(event.target.checked)
-                        }
-                      />{" "}
-                      If a source repair fails, let Nemotron propose dependency
-                      changes and reinstall them in a fresh Sandbox. When Tavily
-                      is configured, dependency names, the selected version, and
-                      an extracted error keyword may be sent for public
-                      research.
-                    </label>
+                    {!["bun", "go", "cargo"].includes(analysis.manager) ? (
+                      <label className="tm-dependency-repair">
+                        <input
+                          type="checkbox"
+                          checked={allowDependencyRepair}
+                          onChange={(event) =>
+                            setAllowDependencyRepair(event.target.checked)
+                          }
+                        />{" "}
+                        If a source repair fails, let Nemotron propose
+                        dependency changes and reinstall them in a fresh
+                        Sandbox. When Tavily is configured, dependency names,
+                        the selected version, and an extracted error keyword may
+                        be sent for public research.
+                      </label>
+                    ) : (
+                      <p>
+                        Dependency-file repair is not available for{" "}
+                        {analysis.manager}.{" "}
+                        {analysis.manager === "cargo" &&
+                          "Rust source repair is also unavailable because tests may be embedded in source files."}
+                      </p>
+                    )}
                     <button
                       type="button"
                       className="primary tm-run"
                       disabled={
-                        analysis.manager === "bun" ||
                         !queued.length ||
                         combinationCount > 12 ||
                         !testCommand.trim() ||
@@ -1560,9 +1595,8 @@ export default function Timeline({
                       {submitting ? "Starting…" : "Run Sandbox tests"}
                     </button>
                     <p className="tm-limit">
-                      {analysis.manager === "bun"
-                        ? "Sandbox experiments are not available for Bun projects yet."
-                        : "Runs code and may consume Nebius credits. Review the command before starting."}
+                      Runs code and may consume Nebius credits. Review the
+                      command before starting.
                     </p>
                     {runError && (
                       <p role="alert" className="tm-run-error">

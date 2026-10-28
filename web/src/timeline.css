@@ -107,6 +107,30 @@
   color: #95959f;
   max-width: none;
 }
+.tm-project-scope {
+  margin-top: 14px;
+  color: var(--muted);
+}
+.tm-project-scope summary {
+  cursor: pointer;
+}
+.tm-project-scope label {
+  display: grid;
+  gap: 6px;
+  max-width: 400px;
+  margin-top: 10px;
+}
+.tm-project-scope input {
+  min-height: 40px;
+  padding: 9px 12px;
+  border: 1px solid #46464c;
+  background: #17171b;
+  color: var(--ink);
+}
+.tm-project-scope p {
+  margin-top: 8px;
+  font-size: 12px;
+}
 .tm-recent {
   margin-top: 14px;
   border: 1px solid var(--line);

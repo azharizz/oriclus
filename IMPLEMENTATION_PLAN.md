@@ -1,9 +1,16 @@
 # Dependency Time Machine implementation checklist
 
+## Bun, Go, Cargo and large-project follow-up
+
+- [x] Add Bun native resolution and Sandbox testing, with an independently verified example.
+- [x] Add Go modules and Cargo native multi-version resolution and offline Sandbox tests, and preserve trustworthy result labels.
+- [x] Improve large Python and JavaScript repository support with explicit standalone project-directory selection and clear scope limitations.
+- [x] Check regression tests, browser behavior and real Sandbox runs; record actual results and remaining limits, then commit and push checkpoints.
+
 ## Large public repositories
 
 - [x] Explore public GitHub root manifests at a recorded commit without a full local snapshot; fetch that same commit in a Sandbox when a supported resolution or test begins.
-- [x] Identify Bun projects as exploration-only rather than using npm silently. Local project snapshot and compressed upload limits still apply; nested workspace selection and Clojure/Bun execution remain future work.
+- [x] Identify Bun projects rather than using npm silently. Initial exploration-only support was followed by native Bun execution above; Clojure remains unsupported and workspace limitations still apply.
 - [x] Verify public GitHub preparation, resolution and a focused test in live Sandboxes, and document observed limits. Metabase was explored only; arbitrary-size repositories and full test suites are not established.
 
 ## Multi-dependency matrix follow-up

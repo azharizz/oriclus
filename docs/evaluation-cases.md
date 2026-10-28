@@ -2,7 +2,7 @@
 
 ## Public repositories and large-project exploration
 
-Metabase (`metabase/metabase`) at commit `32ae44fec4af0a4a87411daecb6a56aeb353b9b8` was explored by fetching root manifests only. Oriclus identified Bun, loaded the first 300 dependencies, and found 85,271 release records; registry metadata was unavailable for two displayed dependencies. A separate direct Sandbox preparation fetched the same commit, and an offline inspection measured 455 MiB of disk usage and 23,194 files after exclusions. Image: `98e25427-484e-4d0d-8b4c-555b8dbd2841`; inspection operation: `01a1819d-3bdd-7035-a69a-911dbc7e82f0`. Bun resolution and tests were correctly unavailable, and Clojure dependencies were not analyzed. No Metabase application tests were run.
+Metabase (`metabase/metabase`) at commit `32ae44fec4af0a4a87411daecb6a56aeb353b9b8` was explored by fetching root manifests only. Oriclus identified Bun, loaded the first 300 dependencies, and found 85,271 release records; registry metadata was unavailable for two displayed dependencies. A separate direct Sandbox preparation fetched the same commit, and an offline inspection measured 455 MiB of disk usage and 23,194 files after exclusions. Image: `98e25427-484e-4d0d-8b4c-555b8dbd2841`; inspection operation: `01a1819d-3bdd-7035-a69a-911dbc7e82f0`. At the time of this earlier evaluation, Bun resolution and tests were unavailable; Bun was added later. Clojure dependencies were not analyzed. No Metabase application tests were run.
 
 A separate live Sandbox evaluation used the public Flask repository (`pallets/flask`) at commit `d086db856be187255b8ec61ef409357393020f32`. Oriclus fetched that exact commit in a Sandbox, resolved it with uv, and ran the same focused Flask test-client probe on the baseline and Werkzeug 3.1.8 and 3.1.9 candidates. All three probe runs passed; both candidates resolved. The probe below is an additional smoke check, not Flask's original test suite. Local run: `10a7a00e68d3407e9a0704602ac25761`.
 
@@ -17,6 +17,20 @@ FastAPI (`fastapi/fastapi`) at commit `79cab5bed28b24d92c185d236feb33f5783dfeb3`
 ```sh
 python -c 'from fastapi import FastAPI; from pydantic import create_model; model=create_model("Item", value=(int,...)); assert model(value="3").value==3; assert FastAPI().openapi()["openapi"]'
 ```
+
+## Bun, Go and Cargo Sandbox matrices
+
+Each bundled example was run with its original tests on a baseline and four combinations of two dependencies. Each combination resolved with the project's native package manager and passed the same offline tests in a separate Nebius Sandbox branch:
+
+| Example | Dependencies and candidate versions | Test command | Local run |
+| --- | --- | --- | --- |
+| `examples/timeline-bun` | semver 7.5.4 / 7.6.0 and is-number 6.0.0 / 7.0.0 | `bun test` | `31dfb7e98032408aaf0418c8740d4274` |
+| `examples/timeline-go` | google/uuid v1.5.0 / v1.6.0 and google/go-cmp v0.5.9 / v0.6.0 | `go test ./...` | `43a291b8faff451ebb52782c2b181317` |
+| `examples/timeline-rust` | serde 1.0.197 / 1.0.198 and serde_json 1.0.114 / 1.0.115 | `cargo test --offline --locked` | `dcdd7cc677704dd8ae94fc4c819f9be9` |
+
+These are small constructed examples, not independent real-world projects. No failing candidate or model repair was demonstrated for these managers. The Go and Cargo integrations remain experimental; passing these tests does not establish broad or production-grade support. Before the Go cache fix, an earlier baseline failed because the Sandbox had no writable Go build cache; its candidates were correctly marked inconclusive, not passed.
+
+The standalone GitHub subdirectory flow was exercised with this repository at commit `6d9776483d52b50b4ebbee74686e4aa24279abeb`, selecting `examples/timeline-node` and running `npm test`. Baseline and minimatch 3.1.2 passed; minimatch 9.0.5 resolved but failed, and the model's repair was rejected. The example is constructed and does not prove shared monorepo workspace support. Local run: `210f850867ac411fa99794a211a6d284`.
 
 ## Synthetic five-dependency matrix
 
