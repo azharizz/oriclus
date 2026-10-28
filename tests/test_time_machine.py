@@ -265,6 +265,62 @@ class ResolverTests(unittest.IsolatedAsyncioTestCase):
             )
             self.assertIn("not been tested", result["message"])
 
+    async def test_javascript_dependency_names_with_different_punctuation_do_not_merge(
+        self,
+    ):
+        from unittest.mock import AsyncMock
+
+        analysis = {
+            "id": "a" * 32,
+            "ecosystem": "node",
+            "manager": "npm",
+            "packages": [
+                {
+                    "name": "owner",
+                    "requirement": "1.0.0",
+                    "direct": True,
+                    "releases": [{"version": "1.0.0", "date": None}],
+                },
+                {
+                    "name": "foo.bar",
+                    "requirement": "*",
+                    "direct": False,
+                    "releases": [],
+                },
+                {
+                    "name": "foo-bar",
+                    "requirement": "*",
+                    "direct": False,
+                    "releases": [],
+                },
+            ],
+        }
+
+        async def metadata(_ecosystem, name, _version):
+            return ({"foo.bar": "^1"} if name == "owner" else {}, True)
+
+        with (
+            patch.object(time_machine, "get_analysis", return_value=analysis),
+            patch.object(
+                time_machine, "snapshot_path", return_value=Path("/tmp/project")
+            ),
+            patch.object(time_machine, "version_requirements", side_effect=metadata),
+            patch(
+                "server.timeline_execution.execute_snapshot",
+                new=AsyncMock(
+                    return_value={
+                        "exit_code": 0,
+                        "stdout": '__ORICLUS_RESULT__={"owner":"1.0.0","foo.bar":"1.0.0","foo-bar":"2.0.0"}',
+                    }
+                ),
+            ),
+        ):
+            result = await time_machine.resolve("a" * 32, "owner", "1.0.0")
+        self.assertEqual(
+            result["edges"],
+            [{"source": "owner", "target": "foo.bar", "requirement": "^1"}],
+        )
+
     async def test_network_error_is_not_claimed_as_a_constraint_conflict(self):
         from unittest.mock import AsyncMock
 

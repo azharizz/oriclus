@@ -786,6 +786,7 @@ async def resolve(
     from server.timeline_execution import execute_snapshot
 
     analysis = get_analysis(analysis_id)
+    name_key = canonicalize_name if analysis["ecosystem"] == "python" else str
     requirements = {
         p["name"]: p["requirement"] for p in analysis["packages"] if p["direct"]
     }
@@ -797,11 +798,7 @@ async def resolve(
     )
     for name, requirement in declared.items():
         existing = next(
-            (
-                key
-                for key in requirements
-                if canonicalize_name(key) == canonicalize_name(name)
-            ),
+            (key for key in requirements if name_key(key) == name_key(name)),
             name,
         )
         provenance = f"{requirement} (required by {package} {version})"
@@ -891,19 +888,19 @@ async def resolve(
         *(inspect_requirements(name, value) for name, value in inspected)
     )
     edges = []
-    selected_names = {canonicalize_name(name): name for name in selected}
+    selected_names = {name_key(name): name for name in selected}
     for owner, declarations in [
         (package, declared),
         *[(name, entries) for name, entries, _ in inspected_results],
     ]:
-        if canonicalize_name(owner) not in selected_names:
+        if name_key(owner) not in selected_names:
             continue
         for name, requirement in declarations.items():
-            target = selected_names.get(canonicalize_name(name))
+            target = selected_names.get(name_key(name))
             if target and target != owner:
                 edges.append(
                     {
-                        "source": selected_names[canonicalize_name(owner)],
+                        "source": selected_names[name_key(owner)],
                         "target": target,
                         "requirement": requirement,
                     }
@@ -911,11 +908,7 @@ async def resolve(
     for owner, declarations, _ in inspected_results:
         for name, requirement in declarations.items():
             existing = next(
-                (
-                    n
-                    for n in requirements
-                    if canonicalize_name(n) == canonicalize_name(name)
-                ),
+                (n for n in requirements if name_key(n) == name_key(name)),
                 name,
             )
             provenance = f"{requirement} (required by {owner})"
@@ -941,8 +934,8 @@ async def resolve(
         note += " This ecosystem is experimental and unverified."
     # The resolver can discover transitive dependencies absent from a lockfile.
     latest = get_analysis(analysis_id)
-    known = {canonicalize_name(item["name"]) for item in latest["packages"]}
-    missing = [name for name in selected if canonicalize_name(name) not in known]
+    known = {name_key(item["name"]) for item in latest["packages"]}
+    missing = [name for name in selected if name_key(name) not in known]
     additional = [
         {
             "name": name,
@@ -964,9 +957,9 @@ async def resolve(
                 )
             )
         latest = get_analysis(analysis_id)
-        known = {canonicalize_name(item["name"]) for item in latest["packages"]}
+        known = {name_key(item["name"]) for item in latest["packages"]}
         latest["packages"].extend(
-            item for item in additional if canonicalize_name(item["name"]) not in known
+            item for item in additional if name_key(item["name"]) not in known
         )
         (snapshot_path(analysis_id).parent / "analysis.json").write_text(
             json.dumps(latest)

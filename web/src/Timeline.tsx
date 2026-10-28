@@ -1,4 +1,11 @@
-import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+  type FormEvent,
+} from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
   ArrowRight,
@@ -13,6 +20,9 @@ import ActivityVisual, { type Activity } from "./ActivityVisual";
 import "./timeline.css";
 
 type Release = { version: string; date: string | null };
+const ROW_HEIGHT = 90;
+const dependencyKey = (name: string, ecosystem?: string) =>
+  ecosystem === "python" ? name.toLowerCase().replace(/[-_.]+/g, "-") : name;
 type Dependency = {
   name: string;
   requirement: string;
@@ -343,11 +353,13 @@ export default function Timeline({
   );
   const packages = useMemo(() => {
     const initial = analysis?.packages || [];
-    const known = new Set(initial.map((item) => item.name.toLowerCase()));
+    const known = new Set(
+      initial.map((item) => dependencyKey(item.name, analysis?.ecosystem)),
+    );
     return [
       ...initial,
       ...(resolution.data?.packages || []).filter(
-        (item) => !known.has(item.name.toLowerCase()),
+        (item) => !known.has(dependencyKey(item.name, analysis?.ecosystem)),
       ),
     ];
   }, [analysis, resolution.data]);
@@ -393,25 +405,29 @@ export default function Timeline({
         }).format(new Date(Date.UTC(2024, month, 1)))
       : `Q${month / 3 + 1}`;
   const visible = packages.filter((pkg) => pkg.direct || showTransitive);
+  const resolvedVersions = new Map(
+    Object.entries(resolution.data?.selected || {}).map(([name, version]) => [
+      dependencyKey(name, analysis?.ecosystem),
+      version,
+    ]),
+  );
   const resolvePoint = (name: string) => {
     const index = visible.findIndex(
       (pkg) =>
-        pkg.name.toLowerCase().replace(/[-_.]+/g, "-") ===
-        name.toLowerCase().replace(/[-_.]+/g, "-"),
+        dependencyKey(pkg.name, analysis?.ecosystem) ===
+        dependencyKey(name, analysis?.ecosystem),
     );
     if (index < 0 || !resolution.data) return null;
-    const selected = Object.entries(resolution.data.selected).find(
-      ([key]) =>
-        key.toLowerCase().replace(/[-_.]+/g, "-") ===
-        name.toLowerCase().replace(/[-_.]+/g, "-"),
-    )?.[1];
+    const selected = resolvedVersions.get(
+      dependencyKey(name, analysis?.ecosystem),
+    );
     const date = dateValue(
       visible[index].releases.find((release) => release.version === selected)
         ?.date || null,
     );
     return date === null
       ? null
-      : { x: 210 + position(date), y: 40 + index * 90 + 45 };
+      : { x: position(date), y: index * ROW_HEIGHT + ROW_HEIGHT / 2 };
   };
   const resolvedEdges =
     resolution.data?.status === "resolved"
@@ -871,7 +887,15 @@ export default function Timeline({
                 tabIndex={0}
                 onScroll={() => setTip(null)}
               >
-                <div className="tm-grid" style={{ width: timelineWidth + 210 }}>
+                <div
+                  className="tm-grid"
+                  style={
+                    {
+                      width: `calc(${timelineWidth}px + var(--tm-label-width))`,
+                      "--tm-row-height": `${ROW_HEIGHT}px`,
+                    } as CSSProperties
+                  }
+                >
                   <div className="tm-axis">
                     <div className="tm-axis-label">
                       DEPENDENCY <span>{visible.length}</span>
@@ -907,8 +931,8 @@ export default function Timeline({
                   {resolvedEdges.length > 0 && (
                     <svg
                       className="tm-connections"
-                      width={timelineWidth + 210}
-                      height={40 + visible.length * 90}
+                      width={timelineWidth}
+                      height={visible.length * ROW_HEIGHT}
                       aria-hidden="true"
                     >
                       {resolvedEdges.map((edge, index) => (
@@ -1006,8 +1030,9 @@ export default function Timeline({
                             selection.version === release.version;
                           const isResolved =
                             resolution.data?.status === "resolved" &&
-                            resolution.data.selected[pkg.name] ===
-                              release.version;
+                            resolvedVersions.get(
+                              dependencyKey(pkg.name, analysis?.ecosystem),
+                            ) === release.version;
                           const hasResearch = researched.has(
                             JSON.stringify([pkg.name, release.version]),
                           );

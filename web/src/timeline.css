@@ -300,11 +300,14 @@
   display: flex;
 }
 .tm-grid {
+  --tm-label-width: 210px;
+  --tm-axis-height: 58px;
   position: relative;
 }
 .tm-connections {
   position: absolute;
-  inset: 0;
+  top: var(--tm-axis-height);
+  left: var(--tm-label-width);
   pointer-events: none;
   z-index: 1;
   overflow: visible;
@@ -323,7 +326,7 @@
 .tm-axis {
   position: sticky;
   top: 0;
-  z-index: 4;
+  z-index: 6;
   background: #1d1d22;
   border-bottom: 1px solid var(--line);
   height: 40px;
@@ -333,8 +336,8 @@
   position: sticky;
   left: 0;
   z-index: 3;
-  flex: 0 0 210px;
-  width: 210px;
+  flex: 0 0 var(--tm-label-width);
+  width: var(--tm-label-width);
   background: #1d1d22;
   border-right: 1px solid var(--line);
 }
@@ -362,13 +365,14 @@
   font-variant-numeric: tabular-nums;
 }
 .tm-row {
-  height: 90px;
+  height: var(--tm-row-height);
   border-bottom: 1px solid #29292f;
 }
 .tm-row:last-child {
   border-bottom: 0;
 }
 .tm-package {
+  z-index: 5;
   display: flex;
   flex-direction: column;
   justify-content: center;
@@ -393,7 +397,7 @@
 .tm-track {
   position: relative;
   flex: none;
-  height: 90px;
+  height: var(--tm-row-height);
 }
 .tm-experiment .tm-dependency-repair {
   display: flex;
@@ -412,7 +416,7 @@
   position: absolute;
   left: 0;
   right: 0;
-  top: 45px;
+  top: 50%;
   background: #36363e;
 }
 .tm-year-line {
@@ -424,7 +428,7 @@
 }
 .tm-release {
   position: absolute;
-  top: 37px;
+  top: calc(50% - 8px);
   margin-left: -8px;
   width: 16px;
   height: 16px;
@@ -757,13 +761,8 @@
   .tm-tools {
     flex-wrap: wrap;
   }
-  .tm-axis-label,
-  .tm-package {
-    flex-basis: 155px;
-    width: 155px;
-  }
   .tm-grid {
-    width: auto;
+    --tm-label-width: 155px;
   }
 }
 
@@ -969,7 +968,7 @@
 
 .tm-axis,
 .tm-axis-years {
-  height: 58px;
+  height: var(--tm-axis-height);
 }
 .tm-axis-label {
   padding-top: 20px;
