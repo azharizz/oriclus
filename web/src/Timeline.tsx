@@ -210,6 +210,7 @@ export default function Timeline({
   const [allowDependencyRepair, setAllowDependencyRepair] = useState(true);
   const [showTransitive, setShowTransitive] = useState(true);
   const [rowPage, setRowPage] = useState(0);
+  const [dependencyFilter, setDependencyFilter] = useState("");
   const [zoom, setZoom] = useState(1);
   const [tip, setTip] = useState<{
     x: number;
@@ -237,6 +238,7 @@ export default function Timeline({
         if (live) {
           setAnalysis(saved);
           setRowPage(0);
+          setDependencyFilter("");
           onAnalysis(saved.id);
           setSelection(null);
           setRunId(experiment.id);
@@ -264,6 +266,7 @@ export default function Timeline({
         if (live) {
           setAnalysis(data);
           setShowTransitive(true);
+          setDependencyFilter("");
           setRowPage(
             Math.max(
               0,
@@ -419,7 +422,9 @@ export default function Timeline({
         }).format(new Date(Date.UTC(2024, month, 1)))
       : `Q${month / 3 + 1}`;
   const filteredPackages = packages.filter(
-    (pkg) => pkg.direct || showTransitive,
+    (pkg) =>
+      (pkg.direct || showTransitive) &&
+      pkg.name.toLowerCase().includes(dependencyFilter.trim().toLowerCase()),
   );
   const activeRowPage = Math.min(
     rowPage,
@@ -513,6 +518,7 @@ export default function Timeline({
     setLoading(true);
     setAnalysis(null);
     setRowPage(0);
+    setDependencyFilter("");
     setSelection(null);
     setQueued([]);
     setGoalChoice("");
@@ -623,6 +629,7 @@ export default function Timeline({
       ]);
       setAnalysis(saved);
       setRowPage(0);
+      setDependencyFilter("");
       onAnalysis(saved.id);
       setSelection(null);
       setQueued([]);
@@ -839,6 +846,17 @@ export default function Timeline({
               </p>
             </div>
             <div className="tm-tools">
+              <input
+                type="search"
+                className="tm-dependency-filter"
+                aria-label="Filter dependencies"
+                placeholder="Find dependency"
+                value={dependencyFilter}
+                onChange={(event) => {
+                  setDependencyFilter(event.target.value);
+                  setRowPage(0);
+                }}
+              />
               <label className="tm-check">
                 <input
                   type="checkbox"
@@ -1140,7 +1158,9 @@ export default function Timeline({
               />
               {!visible.length && (
                 <div className="tm-empty">
-                  No dependencies were found in the supported project files.
+                  {dependencyFilter
+                    ? "No dependencies match your search."
+                    : "No dependencies were found in the supported project files."}
                 </div>
               )}
               <p className="tm-scroll-hint">

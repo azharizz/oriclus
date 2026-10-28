@@ -2,7 +2,7 @@
 
 ## Public repositories and large-project exploration
 
-Metabase (`metabase/metabase`) at commit `32ae44fec4af0a4a87411daecb6a56aeb353b9b8` was explored by fetching root manifests only. Oriclus identified Bun, loaded the first 300 dependencies, and found 85,271 release records; registry metadata was unavailable for two displayed dependencies. Bun resolution and tests were correctly unavailable, and Clojure dependencies were not analyzed. This was a metadata exploration, not an execution of Metabase.
+Metabase (`metabase/metabase`) at commit `32ae44fec4af0a4a87411daecb6a56aeb353b9b8` was explored by fetching root manifests only. Oriclus identified Bun, loaded the first 300 dependencies, and found 85,271 release records; registry metadata was unavailable for two displayed dependencies. A separate direct Sandbox preparation fetched the same commit, and an offline inspection measured 455 MiB of disk usage and 23,194 files after exclusions. Image: `98e25427-484e-4d0d-8b4c-555b8dbd2841`; inspection operation: `01a1819d-3bdd-7035-a69a-911dbc7e82f0`. Bun resolution and tests were correctly unavailable, and Clojure dependencies were not analyzed. No Metabase application tests were run.
 
 A separate live Sandbox evaluation used the public Flask repository (`pallets/flask`) at commit `d086db856be187255b8ec61ef409357393020f32`. Oriclus fetched that exact commit in a Sandbox, resolved it with uv, and ran the same focused Flask test-client probe on the baseline and Werkzeug 3.1.8 and 3.1.9 candidates. All three probe runs passed; both candidates resolved. The probe below is an additional smoke check, not Flask's original test suite. Local run: `10a7a00e68d3407e9a0704602ac25761`.
 
@@ -11,6 +11,12 @@ python -c 'from flask import Flask; app=Flask(__name__); app.add_url_rule("/", v
 ```
 
 The UI normally selects the repository's default branch at exploration time; reproduce the exact historical revision by checking it out locally, subject to local snapshot limits. These results are not a guarantee for other repositories or commits.
+
+FastAPI (`fastapi/fastapi`) at commit `79cab5bed28b24d92c185d236feb33f5783dfeb3` was also explored from root manifests: 210 dependency rows were loaded, with release metadata unavailable for three packages. Its prepared source checkpoint measured 41 MiB of disk usage and 3,233 files, so this particular execution did not exceed the earlier local snapshot limits. In a real Sandbox experiment using uv, the baseline and Pydantic 2.13.4 and 2.13.5 candidates all passed the same focused probe below, and both candidates resolved. This is an additional smoke check, not the project's original test suite. Local run: `0d2ed728196b4911a62df5f8c14f1d47`.
+
+```sh
+python -c 'from fastapi import FastAPI; from pydantic import create_model; model=create_model("Item", value=(int,...)); assert model(value="3").value==3; assert FastAPI().openapi()["openapi"]'
+```
 
 ## Synthetic five-dependency matrix
 
