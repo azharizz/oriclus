@@ -1,8 +1,8 @@
 import {
-  useEffect,
   useMemo,
   useRef,
   useState,
+  useSyncExternalStore,
   type CSSProperties,
 } from "react";
 import {
@@ -16,6 +16,7 @@ import {
   WrapText,
 } from "lucide-react";
 import { label } from "./api";
+import { elapsedClock } from "./subscriptions";
 
 export function Status({ value }: { value: string }) {
   return <span className={`status status-${value}`}>{label(value)}</span>;
@@ -106,16 +107,13 @@ export function Skeleton({
   );
 }
 
+const noClockSubscription = () => () => {};
+
 /** Seconds since mount, for honest "how long has this taken" feedback. */
 export function useElapsed(running = true) {
-  const [start] = useState(() => Date.now());
-  const [now, setNow] = useState(start);
-  useEffect(() => {
-    if (!running) return;
-    const timer = setInterval(() => setNow(Date.now()), 1000);
-    return () => clearInterval(timer);
-  }, [running]);
-  return Math.floor((now - start) / 1000);
+  const [clock] = useState(() => elapsedClock(Date.now()));
+  const subscribe = running ? clock.subscribe : noClockSubscription;
+  return useSyncExternalStore(subscribe, clock.getSnapshot, clock.getSnapshot);
 }
 export const clock = (seconds: number) =>
   `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;

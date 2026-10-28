@@ -1,5 +1,5 @@
 import {
-  useEffect,
+  useCallback,
   useMemo,
   useRef,
   useState,
@@ -207,12 +207,10 @@ function resultClass(status: string) {
 export default function Timeline({
   onAnalysis,
   target,
-  onTargetHandled,
   initialRunId,
 }: {
   onAnalysis: (id: string) => void;
   target: { id: string; package: string; version: string } | null;
-  onTargetHandled: () => void;
   initialRunId?: string | null;
 }) {
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -251,78 +249,68 @@ export default function Timeline({
   const sourceRef = useRef<HTMLFormElement>(null);
   const resultsRef = useRef<HTMLElement>(null);
 
-  useEffect(() => {
-    if (!initialRunId) return;
-    let live = true;
-    api<Experiment>(`/timeline/runs/${encodeURIComponent(initialRunId)}`)
-      .then(async (experiment) => {
-        const saved = await api<Analysis>(
-          `/timeline/analyses/${encodeURIComponent(experiment.analysis_id)}`,
-        );
-        if (live) {
-          setAnalysis(saved);
-          setRowPage(0);
-          setDependencyFilter("");
-          onAnalysis(saved.id);
-          setSelection(null);
-          setRunId(experiment.id);
-          setTestCommand(experiment.test_command);
-        }
-      })
-      .catch((err) => {
-        if (live)
-          setError(
-            err instanceof Error
-              ? err.message
-              : "Could not open this experiment.",
-          );
-      });
-    return () => {
-      live = false;
-    };
-  }, [initialRunId, onAnalysis]);
-
-  useEffect(() => {
-    if (!target) return;
-    let live = true;
-    api<Analysis>(`/timeline/analyses/${encodeURIComponent(target.id)}`)
-      .then((data) => {
-        if (live) {
-          setAnalysis(data);
-          setShowTransitive(true);
-          setDependencyFilter("");
-          setRowPage(
-            Math.max(
-              0,
-              Math.floor(
-                data.packages.findIndex((pkg) => pkg.name === target.package) /
-                  ROWS_PER_PAGE,
-              ),
-            ),
-          );
-          onAnalysis(data.id);
-          setSelection({ name: target.package, version: target.version });
-        }
-      })
-      .catch((err) => {
-        if (live)
-          setError(
-            err instanceof Error ? err.message : "Could not open project.",
-          );
-      });
-    return () => {
-      live = false;
-    };
-  }, [target, onAnalysis]);
-  useEffect(() => {
-    if (target && analysis?.id === target.id) onTargetHandled();
-  }, [analysis, target, onTargetHandled]);
-
-  useEffect(() => {
-    if (analysis && scrollRef.current) {
-      scrollRef.current.scrollLeft = scrollRef.current.scrollWidth;
+  const incomingRun = useQuery({
+    queryKey: ["timeline-run", initialRunId],
+    queryFn: () =>
+      api<Experiment>(`/timeline/runs/${encodeURIComponent(initialRunId!)}`),
+    enabled: !!initialRunId && !target,
+    retry: false,
+  });
+  const incomingAnalysisId = target?.id || incomingRun.data?.analysis_id;
+  const incomingAnalysis = useQuery({
+    queryKey: ["timeline-incoming-analysis", incomingAnalysisId],
+    queryFn: () =>
+      api<Analysis>(
+        `/timeline/analyses/${encodeURIComponent(incomingAnalysisId!)}`,
+      ),
+    enabled: !!incomingAnalysisId,
+    retry: false,
+  });
+  const incomingKey = target
+    ? JSON.stringify(["target", target.id, target.package, target.version])
+    : initialRunId
+      ? `run:${initialRunId}`
+      : null;
+  const [appliedIncoming, setAppliedIncoming] = useState<string | null>(null);
+  if (
+    incomingKey &&
+    incomingAnalysis.data &&
+    appliedIncoming !== incomingKey &&
+    (target || incomingRun.data)
+  ) {
+    setAppliedIncoming(incomingKey);
+    setAnalysis(incomingAnalysis.data);
+    setDependencyFilter("");
+    if (target) {
+      setShowTransitive(true);
+      setRowPage(
+        Math.max(
+          0,
+          Math.floor(
+            incomingAnalysis.data.packages.findIndex(
+              (pkg) => pkg.name === target.package,
+            ) / ROWS_PER_PAGE,
+          ),
+        ),
+      );
+      setSelection({ name: target.package, version: target.version });
+    } else if (incomingRun.data) {
+      setRowPage(0);
+      setSelection(null);
+      setRunId(incomingRun.data.id);
+      setTestCommand(incomingRun.data.test_command);
     }
-  }, [analysis]);
+  }
+  const incomingError = target
+    ? incomingAnalysis.error
+    : incomingRun.error || incomingAnalysis.error;
+  const attachScroll = useCallback(
+    (node: HTMLDivElement | null) => {
+      scrollRef.current = node;
+      if (node && analysis) node.scrollLeft = node.scrollWidth;
+    },
+    [analysis?.id],
+  );
 
   const recent = useQuery({
     queryKey: ["timeline-recent", recentLimit],
@@ -424,10 +412,14 @@ export default function Timeline({
     ),
   );
 
-  useEffect(() => {
+  const decisionScope = `${runId || ""}:${analysis?.id || ""}`;
+  const [previousDecisionScope, setPreviousDecisionScope] =
+    useState(decisionScope);
+  if (decisionScope !== previousDecisionScope) {
+    setPreviousDecisionScope(decisionScope);
     setDecisionKey(null);
     setFocusDecision(false);
-  }, [runId, analysis?.id]);
+  }
 
   const dates = useMemo(
     () =>
@@ -901,9 +893,9 @@ export default function Timeline({
         {loading && (
           <ActivityVisual mode="scan" activity={{ stage: "scanning" }} />
         )}
-        {error && (
+        {(error || incomingError) && (
           <p role="alert" className="error">
-            {error}
+            {error || incomingError?.message}
           </p>
         )}
       </form>
@@ -1235,7 +1227,7 @@ export default function Timeline({
             <div className="tm-chart-wrap">
               <div
                 className="tm-scroll"
-                ref={scrollRef}
+                ref={attachScroll}
                 role="region"
                 aria-label="Dependency release timeline, scroll horizontally to explore"
                 tabIndex={0}

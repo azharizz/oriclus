@@ -1,5 +1,5 @@
-import { useQuery } from "@tanstack/react-query";
-import { type CSSProperties, useEffect, useMemo, useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { type CSSProperties, useMemo, useState } from "react";
 import {
   ArrowRight,
   ExternalLink,
@@ -10,6 +10,7 @@ import {
 } from "lucide-react";
 import { Skeleton } from "./ui";
 import { api } from "./api";
+import { needsFeedRefresh } from "./subscriptions";
 import "./news.css";
 
 type Source = {
@@ -86,18 +87,27 @@ export default function News({
   const [version, setVersion] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const feed = useQuery({
-    queryKey: ["news-feed"],
-    queryFn: () => api<Feed>("/news/feed"),
-    refetchOnWindowFocus: true,
-  });
+  const queryClient = useQueryClient();
   const status = useQuery({
     queryKey: ["news-feed-status"],
-    queryFn: () => api<Refresh | null>("/news/feed-status"),
+    queryFn: async () => {
+      const previous = queryClient.getQueryData<Refresh | null>([
+        "news-feed-status",
+      ]);
+      const next = await api<Refresh | null>("/news/feed-status");
+      if (needsFeedRefresh(previous, next))
+        void queryClient.invalidateQueries({ queryKey: ["news-feed"] });
+      return next;
+    },
     refetchInterval: (query) =>
       ["running", "cancelling"].includes(query.state.data?.status || "")
         ? 1500
         : false,
+  });
+  const feed = useQuery({
+    queryKey: ["news-feed"],
+    queryFn: () => api<Feed>("/news/feed"),
+    refetchOnWindowFocus: true,
   });
   const analysis = useQuery({
     queryKey: ["news-analysis", analysisId],
@@ -105,15 +115,6 @@ export default function News({
     enabled: !!analysisId,
   });
   const active = ["running", "cancelling"].includes(status.data?.status || "");
-  useEffect(() => {
-    if (
-      (status.data?.status === "running" && status.data.completed > 0) ||
-      status.data?.status === "completed" ||
-      status.data?.status === "cancelled" ||
-      status.data?.status === "failed"
-    )
-      void feed.refetch();
-  }, [status.data?.status, status.data?.completed]);
   const groups = useMemo(
     () =>
       (feed.data?.groups || [])

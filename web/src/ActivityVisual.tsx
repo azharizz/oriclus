@@ -1,4 +1,4 @@
-import { useEffect, useState, type CSSProperties } from "react";
+import { useState, type CSSProperties } from "react";
 import {
   Box,
   Check,
@@ -80,15 +80,14 @@ export default function ActivityVisual({
 }) {
   const stage = activity?.stage || "queued";
   const elapsed = useElapsed();
-  const [trail, setTrail] = useState<{ stage: string; at: number }[]>([]);
-  useEffect(() => {
-    setTrail((current) =>
-      current.at(-1)?.stage === stage
-        ? current
-        : [...current, { stage, at: elapsed }].slice(-6),
-    );
-    // Only stage changes belong in the trail; elapsed is read, not tracked.
-  }, [stage]);
+  const [lastStage, setLastStage] = useState(stage);
+  const [trail, setTrail] = useState<{ stage: string; at: number }[]>([
+    { stage, at: elapsed },
+  ]);
+  if (lastStage !== stage) {
+    setLastStage(stage);
+    setTrail([...trail, { stage, at: elapsed }].slice(-6));
+  }
   const steps =
     mode === "run"
       ? [

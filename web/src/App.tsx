@@ -1,10 +1,4 @@
-import {
-  useEffect,
-  useLayoutEffect,
-  useRef,
-  useState,
-  useSyncExternalStore,
-} from "react";
+import { useCallback, useRef, useState, useSyncExternalStore } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
   BookOpen,
@@ -32,9 +26,23 @@ import CommandPalette from "./CommandPalette";
 import { api, type Health } from "./api";
 import { Skeleton } from "./ui";
 
+const normalizeLegacyLocation = () => {
+  if (new URLSearchParams(window.location.search).has("run")) {
+    window.history.replaceState(
+      null,
+      "",
+      `${window.location.pathname}?page=history&legacy=1`,
+    );
+  }
+};
+normalizeLegacyLocation();
 const subscribeLocation = (changed: () => void) => {
-  window.addEventListener("popstate", changed);
-  return () => window.removeEventListener("popstate", changed);
+  const onLocation = () => {
+    normalizeLegacyLocation();
+    changed();
+  };
+  window.addEventListener("popstate", onLocation);
+  return () => window.removeEventListener("popstate", onLocation);
 };
 const locationSnapshot = () => window.location.search;
 const pages = [
@@ -89,34 +97,40 @@ export default function App() {
     package: string;
     version: string;
   } | null>(null);
-  const nav = useRef<HTMLElement>(null);
   const stage = useRef<HTMLDivElement>(null);
   const [indicator, setIndicator] = useState<{ top: number; height: number }>();
-  useLayoutEffect(() => {
-    const active = nav.current?.querySelector<HTMLElement>(
-      '[aria-current="page"]',
-    );
-    setIndicator(
-      active
-        ? { top: active.offsetTop, height: active.offsetHeight }
-        : undefined,
-    );
-  }, [page, sidebarOpen]);
+  const navRef = useCallback(
+    (node: HTMLElement | null) => {
+      const active = node?.querySelector<HTMLElement>('[aria-current="page"]');
+      setIndicator(
+        active
+          ? { top: active.offsetTop, height: active.offsetHeight }
+          : undefined,
+      );
+    },
+    [page, sidebarOpen],
+  );
   const health = useQuery({
     queryKey: ["health"],
     queryFn: () => api<Health>("/health"),
     refetchInterval: 5000,
   });
-  useEffect(() => {
-    if (legacyRun) {
-      window.history.replaceState(
-        null,
-        "",
-        `${window.location.pathname}?page=history&legacy=1`,
-      );
-      window.dispatchEvent(new PopStateEvent("popstate"));
-    }
-  }, [legacyRun]);
+  const selectedRun = useQuery({
+    queryKey: ["timeline-run", timelineRunId],
+    queryFn: () =>
+      api<{ analysis_id: string }>(
+        `/timeline/runs/${encodeURIComponent(timelineRunId!)}`,
+      ),
+    enabled: !!timelineRunId,
+    retry: false,
+  });
+  const [seenRun, setSeenRun] = useState<string | null>(null);
+  if (timelineRunId && selectedRun.data && seenRun !== timelineRunId) {
+    setSeenRun(timelineRunId);
+    setAnalysisId(selectedRun.data.analysis_id);
+  }
+  if (!timelineRunId && seenRun !== null) setSeenRun(null);
+  if (page !== "timeline" && timelineTarget) setTimelineTarget(null);
   const navigate = (query: string) => {
     window.history.pushState(null, "", window.location.pathname + query);
     window.dispatchEvent(new PopStateEvent("popstate"));
@@ -125,6 +139,7 @@ export default function App() {
   };
   const newCheck = () => navigate("");
   const openTimeline = (id: string, pkg: string, version: string) => {
+    setAnalysisId(id);
     setTimelineTarget({ id, package: pkg, version });
     navigate("");
   };
@@ -173,7 +188,7 @@ export default function App() {
           <span>Jump to…</span>
           <kbd>⌘K</kbd>
         </button>
-        <nav aria-label="Main navigation" ref={nav}>
+        <nav aria-label="Main navigation" ref={navRef}>
           {indicator && (
             <span
               className="nav-indicator"
@@ -410,7 +425,6 @@ export default function App() {
               <Timeline
                 onAnalysis={setAnalysisId}
                 target={timelineTarget}
-                onTargetHandled={() => setTimelineTarget(null)}
                 initialRunId={timelineRunId}
               />
             )}

@@ -1,8 +1,9 @@
-import { useEffect, useState, type CSSProperties } from "react";
+import { useMemo, useSyncExternalStore, type CSSProperties } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { CheckCircle2, Gauge, Timer, Wrench } from "lucide-react";
 import { api } from "./api";
 import { Skeleton } from "./ui";
+import { animatedNumber } from "./subscriptions";
 import "./metrics.css";
 
 type Metrics = {
@@ -15,21 +16,12 @@ type Metrics = {
 };
 /** Eases a displayed number toward its value when data arrives. */
 function useCountUp(target: number) {
-  const [value, setValue] = useState(0);
-  useEffect(() => {
-    if (matchMedia("(prefers-reduced-motion: reduce)").matches)
-      return setValue(target);
-    const start = performance.now();
-    let frame = 0;
-    const tick = (now: number) => {
-      const t = Math.min(1, (now - start) / 900);
-      setValue(target * (1 - (1 - t) ** 3));
-      if (t < 1) frame = requestAnimationFrame(tick);
-    };
-    frame = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(frame);
-  }, [target]);
-  return value;
+  const animation = useMemo(() => animatedNumber(target), [target]);
+  return useSyncExternalStore(
+    animation.subscribe,
+    animation.getSnapshot,
+    animation.getSnapshot,
+  );
 }
 function Ring({ n, d }: { n: number; d: number }) {
   const ratio = d ? n / d : 0;

@@ -1,4 +1,10 @@
-import { useEffect, useRef, useState, type ComponentType } from "react";
+import {
+  useCallback,
+  useRef,
+  useState,
+  useSyncExternalStore,
+  type ComponentType,
+} from "react";
 import { useQuery } from "@tanstack/react-query";
 import { CornerDownLeft, FlaskConical, Search } from "lucide-react";
 import { api } from "./api";
@@ -18,6 +24,32 @@ type Recent = {
   project_name?: string | null;
 };
 
+let paletteOpen = false;
+const paletteListeners = new Set<() => void>();
+function setPaletteOpen(value: boolean) {
+  if (paletteOpen === value) return;
+  paletteOpen = value;
+  paletteListeners.forEach((notify) => notify());
+}
+function subscribePalette(notify: () => void) {
+  paletteListeners.add(notify);
+  const onKey = (event: KeyboardEvent) => {
+    if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
+      event.preventDefault();
+      setPaletteOpen(!paletteOpen);
+    }
+  };
+  const onOpen = () => setPaletteOpen(true);
+  window.addEventListener("keydown", onKey);
+  window.addEventListener("oriclus:palette", onOpen);
+  return () => {
+    paletteListeners.delete(notify);
+    window.removeEventListener("keydown", onKey);
+    window.removeEventListener("oriclus:palette", onOpen);
+  };
+}
+const paletteSnapshot = () => paletteOpen;
+
 /** ⌘K / Ctrl+K jump list for pages and recent experiments. */
 export default function CommandPalette({
   pages,
@@ -27,7 +59,12 @@ export default function CommandPalette({
   onOpenRun: (id: string) => void;
 }) {
   const dialog = useRef<HTMLDialogElement>(null);
-  const [open, setOpen] = useState(false);
+  const open = useSyncExternalStore(
+    subscribePalette,
+    paletteSnapshot,
+    paletteSnapshot,
+  );
+  const [previousOpen, setPreviousOpen] = useState(open);
   const [query, setQuery] = useState("");
   const [cursor, setCursor] = useState(0);
   const recent = useQuery({
@@ -36,28 +73,23 @@ export default function CommandPalette({
     enabled: open,
     staleTime: 10000,
   });
-  useEffect(() => {
-    const onKey = (event: KeyboardEvent) => {
-      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
-        event.preventDefault();
-        setOpen((value) => !value);
-      }
-    };
-    const onOpen = () => setOpen(true);
-    window.addEventListener("keydown", onKey);
-    window.addEventListener("oriclus:palette", onOpen);
-    return () => {
-      window.removeEventListener("keydown", onKey);
-      window.removeEventListener("oriclus:palette", onOpen);
-    };
-  }, []);
-  useEffect(() => {
-    if (open && !dialog.current?.open) {
+  if (open !== previousOpen) {
+    setPreviousOpen(open);
+    if (open) {
       setQuery("");
       setCursor(0);
-      dialog.current?.showModal();
-    } else if (!open && dialog.current?.open) dialog.current.close();
-  }, [open]);
+    }
+  }
+  const attachDialog = useCallback((node: HTMLDialogElement | null) => {
+    dialog.current = node;
+    if (node) {
+      if (!node.open) node.showModal();
+      node.querySelector("input")?.focus();
+      return () => {
+        dialog.current = null;
+      };
+    }
+  }, []);
 
   const needle = query.trim().toLowerCase();
   const items: (PaletteItem & { group: string })[] = [
@@ -76,17 +108,20 @@ export default function CommandPalette({
   const active = Math.min(cursor, Math.max(items.length - 1, 0));
   const choose = (item?: PaletteItem) => {
     if (!item) return;
-    setOpen(false);
+    setPaletteOpen(false);
     item.run();
   };
 
+  if (!open) return null;
   return (
     <dialog
-      ref={dialog}
+      ref={attachDialog}
       className="palette"
       aria-label="Command palette"
-      onClose={() => setOpen(false)}
-      onClick={(event) => event.target === dialog.current && setOpen(false)}
+      onClose={() => setPaletteOpen(false)}
+      onClick={(event) =>
+        event.target === dialog.current && setPaletteOpen(false)
+      }
     >
       {open && (
         <div className="palette-body">

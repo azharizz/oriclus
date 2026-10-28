@@ -40,7 +40,7 @@ The brief's prize predictions, competitor counts and future market claims are no
 1. Implement request contracts, SQLite history, local HTTP security and Docker execution. Verify URL/ref/path validation, storage recovery, snapshot independence and cancellation.
 2. Implement real Nebius tool calls, bounded iteration budgets, independent candidate forks and untouched verification. Verify a live tool roundtrip and reject patches outside the configured source paths.
 3. Implement the complete rehearsal: clone exact refs, build both upstream wheels, install a shared downstream environment, fork baseline/candidate states, compare actual exit codes, investigate regressions and export patches. Verify on real HTTPX and Starlette tags.
-4. Implement the React workspace: create run, consumer configuration, history, lineage, evidence, patch downloads, cancellation, errors and mobile layout. Use declarative state and query polling without useEffect.
+4. Implement the React workspace: create run, consumer configuration, history, lineage, evidence, patch downloads, cancellation, errors and mobile layout. Use declarative state and query polling without effect hooks.
 5. Run backend checks, strict TypeScript/build, browser desktop/mobile checks and Impeccable detector. Record actual results below, not expected results.
 
 ### Design direction

@@ -133,7 +133,7 @@ uv run python -m unittest discover -s tests -v
 uv run ruff check server tests scripts
 uv run ruff format --check server tests scripts
 npm run format:check
-npm run test:decision
+npm run test:frontend
 npm run build
 ```
 
