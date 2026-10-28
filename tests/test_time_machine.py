@@ -259,6 +259,10 @@ class ResolverTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(result["status"], "resolved")
             self.assertEqual(result["selected"]["other"], "2.0")
             self.assertIn("required by MarkupSafe", result["requirements"]["other"])
+            self.assertIn(
+                {"source": "MarkupSafe", "target": "other", "requirement": ">=2"},
+                result["edges"],
+            )
             self.assertIn("not been tested", result["message"])
 
     async def test_network_error_is_not_claimed_as_a_constraint_conflict(self):

@@ -15,6 +15,43 @@ from server.workflow import Rehearsal
 
 
 class ResearchBoundaries(unittest.IsolatedAsyncioTestCase):
+    async def test_structured_nemotron_can_disable_thinking(self):
+        requests = []
+
+        def endpoint(request):
+            requests.append(json.loads(request.content))
+            return httpx.Response(
+                200,
+                json={
+                    "choices": [
+                        {
+                            "finish_reason": "stop",
+                            "message": {"role": "assistant", "content": "{}"},
+                        }
+                    ]
+                },
+            )
+
+        real = httpx.AsyncClient
+        with (
+            patch.object(agent, "KEY", "unit-test-only"),
+            patch.object(agent, "BASE_URL", "https://example.org"),
+            patch.object(agent, "MODEL", "nvidia/Nemotron-3_5-Lightning"),
+            patch.object(
+                agent.httpx,
+                "AsyncClient",
+                side_effect=lambda **kw: real(
+                    transport=httpx.MockTransport(endpoint), **kw
+                ),
+            ),
+        ):
+            await agent.completion(
+                [{"role": "user", "content": "test"}], disable_thinking=True
+            )
+        self.assertEqual(
+            requests[0]["chat_template_kwargs"], {"enable_thinking": False}
+        )
+
     async def test_provider_request_and_real_response_fields(self):
         def endpoint(request):
             self.assertEqual(str(request.url), "https://api.tavily.com/search")

@@ -96,6 +96,11 @@ class MetricsTests(unittest.TestCase):
                     "results": [{"repair": {"status": "unavailable"}}],
                 },
                 {"status": "running", "results": []},
+                {
+                    "status": "completed",
+                    "evaluation": "Controlled test with simulated model",
+                    "results": [{"repair": {"status": "verified"}}],
+                },
             ]
             for i, entry in enumerate(entries):
                 (root / f"{i}.json").write_text(json.dumps(entry))
@@ -103,3 +108,8 @@ class MetricsTests(unittest.TestCase):
             self.assertEqual(result["completion"], {"completed": 1, "terminal": 2})
             self.assertEqual(result["first_result_seconds"], {"median": 10, "count": 1})
             self.assertEqual(result["repair"], {"verified": 1, "attempts": 2})
+            self.assertEqual(
+                result["run_statuses"],
+                {"completed": 1, "failed": 1, "cancelled": 0, "interrupted": 0},
+            )
+            self.assertEqual(result["duration_bins"], [1, 0, 0, 0])

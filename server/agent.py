@@ -68,12 +68,15 @@ async def completion(
     messages: list[dict],
     tools: list[dict] | None = None,
     schema: type[BaseModel] | None = None,
+    disable_thinking: bool = False,
 ) -> tuple[dict, dict]:
     if not (KEY and MODEL and BASE_URL):
         raise BoundaryError(
             "Set NEBIUS_API_KEY, NEBIUS_MODEL and NEBIUS_BASE_URL in project_testing/.env."
         )
     body = {"model": MODEL, "messages": messages, "max_tokens": MAX_TOKENS}
+    if disable_thinking and "nemotron-3-5" in MODEL.lower().replace("_", "-"):
+        body["chat_template_kwargs"] = {"enable_thinking": False}
     if tools:
         body.update(tools=tools, tool_choice="auto")
     if schema:
@@ -117,11 +120,17 @@ async def completion(
 
 
 async def reason(
-    prompt: str, emit: Callable, title: str, schema: type[BaseModel]
+    prompt: str,
+    emit: Callable,
+    title: str,
+    schema: type[BaseModel],
+    *,
+    disable_thinking: bool = False,
 ) -> dict:
     message, usage = await completion(
         [{"role": "system", "content": SYSTEM}, {"role": "user", "content": prompt}],
         schema=schema,
+        disable_thinking=disable_thinking,
     )
     try:
         result = schema.model_validate_json(message.get("content") or "").model_dump()

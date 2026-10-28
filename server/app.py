@@ -365,6 +365,7 @@ class TimelineRunRequest(BaseModel):
     versions: list[str] = Field(min_length=1, max_length=5)
     selections: dict[str, list[str]] | None = None
     goal: dict[str, str] | None = None
+    dependency_repair: bool = False
     test_command: str = Field(min_length=1, max_length=8000)
 
 
@@ -593,6 +594,7 @@ async def timeline_start(spec: TimelineRunRequest):
             spec.test_command,
             spec.selections,
             spec.goal,
+            spec.dependency_repair,
         )
     except (BoundaryError, ValueError) as error:
         raise HTTPException(400, str(error)) from error

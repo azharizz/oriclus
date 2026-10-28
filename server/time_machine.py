@@ -890,6 +890,24 @@ async def resolve(
     inspected_results = await asyncio.gather(
         *(inspect_requirements(name, value) for name, value in inspected)
     )
+    edges = []
+    selected_names = {canonicalize_name(name): name for name in selected}
+    for owner, declarations in [
+        (package, declared),
+        *[(name, entries) for name, entries, _ in inspected_results],
+    ]:
+        if canonicalize_name(owner) not in selected_names:
+            continue
+        for name, requirement in declarations.items():
+            target = selected_names.get(canonicalize_name(name))
+            if target and target != owner:
+                edges.append(
+                    {
+                        "source": selected_names[canonicalize_name(owner)],
+                        "target": target,
+                        "requirement": requirement,
+                    }
+                )
     for owner, declarations, _ in inspected_results:
         for name, requirement in declarations.items():
             existing = next(
@@ -961,6 +979,7 @@ async def resolve(
         "status": "resolved",
         "selected": selected,
         "requirements": requirements,
+        "edges": edges,
         "message": note,
         "packages": latest["packages"],
     }

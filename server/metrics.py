@@ -10,7 +10,7 @@ def calculate(directory: Path) -> dict:
     for path in directory.glob("*.json"):
         try:
             item = json.loads(path.read_text())
-            if item.get("status") in (
+            if not item.get("evaluation") and item.get("status") in (
                 "completed",
                 "failed",
                 "cancelled",
@@ -27,12 +27,18 @@ def calculate(directory: Path) -> dict:
         and isinstance(run.get("started_at"), (int, float))
         and run["first_result_at"] >= run["started_at"]
     ]
-    repairs = [
-        result["repair"]
-        for run in runs
-        for result in run.get("results", [])
-        if isinstance(result.get("repair"), dict)
-    ]
+    repairs = []
+    for run in runs:
+        for result in run.get("results", []):
+            if isinstance(result.get("repair"), dict):
+                repairs.append(result["repair"])
+            attempts = result.get("dependency_repairs")
+            if isinstance(attempts, list):
+                repairs.extend(
+                    attempt for attempt in attempts if isinstance(attempt, dict)
+                )
+            elif isinstance(result.get("dependency_repair"), dict):
+                repairs.append(result["dependency_repair"])
     verified = sum(repair.get("status") == "verified" for repair in repairs)
     return {
         "completion": {"completed": completed, "terminal": len(runs)},
@@ -41,4 +47,22 @@ def calculate(directory: Path) -> dict:
             "count": len(durations),
         },
         "repair": {"verified": verified, "attempts": len(repairs)},
+        "run_statuses": {
+            status: sum(run["status"] == status for run in runs)
+            for status in ("completed", "failed", "cancelled", "interrupted")
+        },
+        "test_outcomes": {
+            status: sum(
+                result.get("status") == status
+                for run in runs
+                for result in run.get("results", [])
+            )
+            for status in ("passed", "failed", "inconclusive")
+        },
+        "duration_bins": [
+            sum(duration < 30 for duration in durations),
+            sum(30 <= duration < 60 for duration in durations),
+            sum(60 <= duration < 120 for duration in durations),
+            sum(duration >= 120 for duration in durations),
+        ],
     }

@@ -478,18 +478,31 @@ class TimelineRuns:
         ):
             try:
                 run = json.loads(path.read_text())
-                items.append(
-                    {
-                        key: run[key]
-                        for key in (
-                            "id",
-                            "analysis_id",
-                            "package",
-                            "versions",
-                            "status",
-                        )
-                    }
-                )
+                summary = {
+                    key: run[key]
+                    for key in ("id", "analysis_id", "package", "versions", "status")
+                }
+                summary["started_at"] = run.get("started_at")
+                summary["evaluation"] = run.get("evaluation")
+                summary["selections"] = run.get("selections") or {
+                    run["package"]: run["versions"]
+                }
+                summary["outcomes"] = {
+                    status: sum(
+                        result.get("status") == status
+                        for result in run.get("results", [])
+                    )
+                    for status in ("passed", "failed", "inconclusive")
+                }
+                try:
+                    from server.time_machine import get_analysis
+
+                    summary["project_name"] = get_analysis(run["analysis_id"]).get(
+                        "project_name"
+                    )
+                except (BoundaryError, OSError, ValueError, KeyError):
+                    summary["project_name"] = None
+                items.append(summary)
             except (OSError, ValueError, KeyError):
                 continue
             if len(items) >= limit:
@@ -504,6 +517,7 @@ class TimelineRuns:
         test_command: str,
         selections: dict[str, list[str]] | None = None,
         goal: dict[str, str] | None = None,
+        dependency_repair: bool = False,
     ) -> dict:
         from server.time_machine import get_analysis, snapshot_path
 
@@ -569,6 +583,7 @@ class TimelineRuns:
             "selections": selections,
             "combinations": combinations,
             "goal": goal,
+            "dependency_repair_enabled": dependency_repair,
             "status": "queued",
             "started_at": time.time(),
             "model": MODEL,
@@ -770,6 +785,56 @@ class TimelineRuns:
                                     evidence,
                                     lambda event: record_decision(event, label),
                                 )
+                                if (
+                                    run.get("dependency_repair_enabled")
+                                    and item["repair"].get("status") != "verified"
+                                ):
+                                    from server.dependency_repair import (
+                                        propose_dependency_repair,
+                                    )
+
+                                    attempts = item.setdefault("dependency_repairs", [])
+                                    for _ in range(2):
+                                        prior = [
+                                            {
+                                                "changes": attempt.get("changes", []),
+                                                "error": attempt.get("error"),
+                                                "test_output": (
+                                                    (
+                                                        attempt.get("verification")
+                                                        or {}
+                                                    ).get("stdout", "")
+                                                    + (
+                                                        attempt.get("verification")
+                                                        or {}
+                                                    ).get("stderr", "")
+                                                )[-1200:],
+                                            }
+                                            for attempt in attempts
+                                        ]
+                                        proposal = await propose_dependency_repair(
+                                            candidate_box,
+                                            parent,
+                                            analysis,
+                                            path,
+                                            combination,
+                                            run["package"],
+                                            run.get("goal"),
+                                            run["test_command"],
+                                            result,
+                                            lambda stage: progress(stage, label, index),
+                                            lambda event: record_decision(event, label),
+                                            prior,
+                                        )
+                                        attempts.append(proposal)
+                                        item["dependency_repair"] = proposal
+                                        self._save(run)
+                                        if proposal[
+                                            "status"
+                                        ] != "failed" or not proposal.get(
+                                            "verification"
+                                        ):
+                                            break
                                 item["repair_pending"] = False
                         else:
                             item["status"] = "inconclusive"
