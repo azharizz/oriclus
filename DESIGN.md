@@ -83,13 +83,15 @@ Code, commands, patches and refs use `ui-monospace, SFMono-Regular, Menlo, monos
 
 ## Layout
 
-The header is fixed at 56px high, with 24px horizontal padding. The desktop sidebar is 276px wide with 24px padding; below 1100px it is 236px. Main content starts below the header with 28px top and 40px horizontal padding. A header button collapses navigation and releases that space to the content.
+The sidebar runs the full window height, holds the brand, a ⌘K jump button, navigation and service status, and is 276px wide (236px below 1100px). Collapsing it leaves a 72px icon rail with hover labels; below 600px it becomes an overlay drawer. Pages render inside a rounded workspace sheet inset 10px from the window; the sheet is the scroll container. A 60px top bar is sticky inside the sheet with breadcrumbs, a command palette trigger, connection status and documentation, and gains a hairline as content scrolls. Main content has 26px top and 36px horizontal padding.
+
+The Time machine heading includes a three-step progress stepper (choose project, explore and resolve, test). The source panel is one command row: a GitHub/local segmented control, the location field and the action. The release inspector splits into Overview, Resolve and Test tabs.
 
 The entry screen uses a setup panel up to 760px wide beside a 240px to 320px workflow guide, separated by 32px. Manual setup has an 840px maximum. Results and history use the available workspace width. Repeated content is paginated, not stacked into an unlimited page. Narrow fallback rules remain, but the current visual review is desktop only.
 
 ## Elevation & Depth
 
-Use tonal surfaces and one-pixel borders. There are no decorative shadows, gradients or glass effects. The fixed header sits above scrolling content; panels remain flat.
+Tonal surfaces and one-pixel borders still divide work areas. Panels carry a faint inner top highlight; raised panels (source, timeline, results) add a soft drop shadow. The header and sidebar are translucent with a backdrop blur, and the page has a faint dot grid and two low-opacity purple and mint glows. Gradients are limited to these glows, primary-button sheen, heading text and progress fills.
 
 ## Shapes
 
@@ -97,12 +99,14 @@ Panels and result containers use 12px corners; controls use 8px; navigation uses
 
 ## Components
 
-- **Header:** outlined Oriclus wordmark, cycle tile and descriptor; a plain local workspace label; a real documentation link. No account, credit or project-switching controls without those capabilities.
-- **Navigation:** icon and text, charcoal selected row, lime active icon, `aria-current` and an accessible collapse button.
+- **Top bar:** breadcrumbs, a command palette trigger, live API status and a real documentation link. No account, credit or project-switching controls without those capabilities.
+- **Command palette:** ⌘K / Ctrl+K opens a native `<dialog>` listing pages and recent experiments, with arrow-key navigation.
+- **Navigation:** icon tiles and text; the selected tile turns purple and a highlight springs between rows. `aria-current` and an accessible collapse button.
 - **Forms:** visible labels, 40px repository input, optional fields disclosed as needed. The automatic path has one required field. Manual, imported and reused setups share the same editor.
 - **Actions:** purple primary action, quiet text alternatives, explicit disabled state. Focus uses a 2px lavender outline with a 3px offset.
 - **Results:** compact bordered rows show before and after test outcomes, plus a distinct repair-review status. Commands, patches and logs expand on request.
-- **Motion:** 150ms color and disclosure transitions, 200ms sidebar content movement matching the reference. A 1.6s opacity pulse is reserved for active work. All motion is inside `prefers-reduced-motion: no-preference`.
+- **Motion:** shared easings `--ease` (expo-out) and `--spring` live in `style.css`. Pages enter with a staggered rise; the navigation indicator springs between items; every `<details>` animates its height. Timeline tracks draw in and release points pop in by row and position. Live work uses a pinging dot, a stepper rail that fills, an elapsed clock and a stage trail (`ActivityVisual`). Lists load behind skeletons, not text. A global `prefers-reduced-motion: reduce` rule disables all of it.
+- **Long output:** test logs, installation output, patches and long resolver messages render in `LogView` (`ui.tsx`): bounded height, line numbers, error and diff highlighting, wrap, expand, jump-to-end and copy. Output beyond 1,500 lines shows the tail first. Agent decisions and recorded activity sit in bounded rails.
 
 ## Do's and Don'ts
 
@@ -110,6 +114,6 @@ Panels and result containers use 12px corners; controls use 8px; navigation uses
 - Do keep results, failures and recovery actions honest and visible.
 - Do preserve keyboard focus, native labels and reduced-motion behavior.
 - Don't copy Nebius account content or imply capabilities Oriclus does not provide.
-- Don't add ornamental dashboards, invented metrics or decorative animation.
+- Don't add ornamental dashboards or invented metrics. Animation should explain state (loading, selection, progress, arrival), not just decorate.
 
 The Impeccable detector flags Inter as common and sidebar margin animation as layout work. These are explicit reference choices, not general recommendations for unrelated screens. The 200ms transition is confined to navigation collapse. Screenshots are in `.oriclus/screenshots/nebius-*-desktop.png`; they record the rendered implementation, not a promise of pixel parity across every Nebius page.

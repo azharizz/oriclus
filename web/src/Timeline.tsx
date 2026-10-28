@@ -9,15 +9,26 @@ import {
 import { useQuery } from "@tanstack/react-query";
 import {
   ArrowRight,
+  Bot,
   CalendarDays,
   ChevronDown,
+  Check,
   FlaskConical,
+  FolderOpen,
   GitBranch,
+  Globe,
+  Info,
+  Layers,
+  History as HistoryIcon,
   LoaderCircle,
+  Search,
+  Sparkles,
+  Terminal,
+  Wrench,
 } from "lucide-react";
 import { api } from "./api";
 import ActivityVisual, { type Activity } from "./ActivityVisual";
-import { Pager } from "./ui";
+import { LogView, Pager, Skeleton } from "./ui";
 import {
   experimentOptions,
   recommendOptions,
@@ -158,6 +169,7 @@ type AgentDecision = {
   tool_count?: number;
 };
 type Selection = { name: string; version: string };
+const tabs = ["overview", "resolve", "test"] as const;
 
 function dateValue(value: string | null) {
   const time = value ? Date.parse(value) : NaN;
@@ -235,6 +247,9 @@ export default function Timeline({
   const [submitting, setSubmitting] = useState(false);
   const [runError, setRunError] = useState("");
   const [recentLimit, setRecentLimit] = useState(10);
+  const [tab, setTab] = useState<(typeof tabs)[number]>("overview");
+  const sourceRef = useRef<HTMLFormElement>(null);
+  const resultsRef = useRef<HTMLElement>(null);
 
   useEffect(() => {
     if (!initialRunId) return;
@@ -742,8 +757,60 @@ export default function Timeline({
             you upgrade.
           </p>
         </div>
+        <ol className="tm-stepper" aria-label="Progress">
+          {[
+            {
+              name: "Choose project",
+              detail: analysis?.project_name || "Repository or folder",
+              state: analysis ? "done" : "active",
+              target: sourceRef,
+            },
+            {
+              name: "Explore & resolve",
+              detail: selection
+                ? `${selection.name} ${selection.version}`
+                : analysis
+                  ? `${packages.length} dependencies`
+                  : "Release timeline",
+              state: runId ? "done" : analysis ? "active" : "todo",
+              target: timelineRef,
+            },
+            {
+              name: "Test in Sandbox",
+              detail: run.data
+                ? resultLabel(run.data.status)
+                : queued.length
+                  ? `${queued.length} version${queued.length === 1 ? "" : "s"} queued`
+                  : "Optional",
+              state: runId ? "active" : "todo",
+              target: resultsRef,
+            },
+          ].map((step, index) => (
+            <li key={step.name} className={`is-${step.state}`}>
+              <button
+                type="button"
+                disabled={step.state === "todo"}
+                aria-current={step.state === "active" ? "step" : undefined}
+                onClick={() =>
+                  step.target.current?.scrollIntoView({
+                    behavior: "smooth",
+                    block: "start",
+                  })
+                }
+              >
+                <span className="tm-stepper-node">
+                  {step.state === "done" ? <Check size={14} /> : index + 1}
+                </span>
+                <span>
+                  <strong>{step.name}</strong>
+                  <small>{step.detail}</small>
+                </span>
+              </button>
+            </li>
+          ))}
+        </ol>
       </header>
-      <form className="tm-source" onSubmit={analyze}>
+      <form className="tm-source" onSubmit={analyze} ref={sourceRef}>
         <div className="tm-source-heading">
           <div>
             <span className="tm-step">01</span>
@@ -752,30 +819,49 @@ export default function Timeline({
           <small>Inspect dependencies before running code</small>
         </div>
         <div className="tm-source-fields">
-          <label>
-            Source
-            <select
-              value={source}
-              onChange={(event) =>
-                setSource(event.target.value as "github" | "local")
-              }
-            >
-              <option value="github">Public GitHub</option>
-              <option value="local">Local directory</option>
-            </select>
-          </label>
+          <fieldset
+            className="tm-segment"
+            style={{ "--seg": source === "github" ? 0 : 1 } as CSSProperties}
+          >
+            <legend>Source</legend>
+            <span className="tm-segment-thumb" aria-hidden="true" />
+            {(
+              [
+                ["github", "Public GitHub", Globe],
+                ["local", "Local directory", FolderOpen],
+              ] as const
+            ).map(([value, text, Icon]) => (
+              <label key={value}>
+                <input
+                  type="radio"
+                  name="tm-source"
+                  value={value}
+                  checked={source === value}
+                  onChange={() => setSource(value)}
+                />
+                <Icon size={14} /> {text}
+              </label>
+            ))}
+          </fieldset>
           <label className="tm-location">
             {source === "github" ? "Repository URL" : "Absolute directory path"}
-            <input
-              required
-              value={location}
-              onChange={(event) => setLocation(event.target.value)}
-              placeholder={
-                source === "github"
-                  ? "https://github.com/owner/repository"
-                  : "/path/to/your/project"
-              }
-            />
+            <span className="tm-location-field">
+              {source === "github" ? (
+                <GitBranch size={15} aria-hidden="true" />
+              ) : (
+                <FolderOpen size={15} aria-hidden="true" />
+              )}
+              <input
+                required
+                value={location}
+                onChange={(event) => setLocation(event.target.value)}
+                placeholder={
+                  source === "github"
+                    ? "https://github.com/owner/repository"
+                    : "/path/to/your/project"
+                }
+              />
+            </span>
           </label>
           <button className="primary" disabled={loading || !location.trim()}>
             {loading ? (
@@ -824,19 +910,31 @@ export default function Timeline({
       {!!recent.data?.length && (
         <details className="tm-recent">
           <summary>
-            Recent Sandbox experiments <ChevronDown size={14} />
+            <HistoryIcon size={15} /> Recent Sandbox experiments
+            <span className="tm-count">{recent.data.length}</span>
+            <ChevronDown size={14} className="tm-chevron" />
           </summary>
           <div className="tm-recent-list">
             {recent.data.map((item) => (
               <button
                 key={item.id}
                 type="button"
+                className={runId === item.id ? "is-open" : ""}
                 onClick={() => openRecent(item)}
               >
+                <i
+                  className={`tm-result-dot ${["queued", "running", "preparing", "testing"].includes(item.status) ? "live" : item.status === "completed" ? "done" : resultClass(item.status)}`}
+                />
                 <strong>{item.package}</strong>
-                <span>{item.versions.join(", ")}</span>
-                <span>{resultLabel(item.status)}</span>
-                <span>Run {item.id.slice(0, 8)}</span>
+                <span className="tm-recent-versions">
+                  {item.versions.map((version) => (
+                    <code key={version}>{version}</code>
+                  ))}
+                </span>
+                <span className="tm-recent-status">
+                  {resultLabel(item.status)}
+                </span>
+                <span className="tm-recent-id">#{item.id.slice(0, 8)}</span>
               </button>
             ))}
             {recent.data.length >= recentLimit && recentLimit < 100 && (
@@ -854,6 +952,43 @@ export default function Timeline({
       )}
       {!analysis ? (
         <div className="tm-intro">
+          <div className="tm-hero-preview" aria-hidden="true">
+            {[
+              [8, 22, 41, 63, 80],
+              [15, 34, 52, 71, 92],
+              [5, 28, 47, 88],
+            ].map((dots, row) => (
+              <div className="tm-hero-row" key={row}>
+                <span className="tm-hero-label">
+                  <i />
+                  <i />
+                </span>
+                <span className="tm-hero-track">
+                  {dots.map((left, index) => (
+                    <i
+                      key={left}
+                      className={
+                        row === 1 && index === 3
+                          ? "is-selected"
+                          : index === dots.length - 1
+                            ? "is-latest"
+                            : row === 0 && index === 2
+                              ? "is-current"
+                              : ""
+                      }
+                      style={
+                        {
+                          left: `${left}%`,
+                          "--d": row * 5 + index,
+                        } as CSSProperties
+                      }
+                    />
+                  ))}
+                </span>
+              </div>
+            ))}
+            <span className="tm-hero-sweep" />
+          </div>
           <div className="tm-intro-title">
             <GitBranch size={18} />
             <div>
@@ -865,17 +1000,23 @@ export default function Timeline({
           </div>
           <div className="tm-intro-steps">
             <div>
-              <span>01</span>
+              <span>
+                <CalendarDays size={15} /> 01
+              </span>
               <strong>Explore</strong>
               <p>Compare release dates and requirements.</p>
             </div>
             <div>
-              <span>02</span>
+              <span>
+                <Search size={15} /> 02
+              </span>
               <strong>Resolve</strong>
               <p>See a candidate set using the project’s package manager.</p>
             </div>
             <div>
-              <span>03</span>
+              <span>
+                <FlaskConical size={15} /> 03
+              </span>
               <strong>Test</strong>
               <p>Run selected versions in separate Sandbox experiments.</p>
             </div>
@@ -1159,8 +1300,12 @@ export default function Timeline({
                       ))}
                     </svg>
                   )}
-                  {visible.map((pkg) => (
-                    <div className="tm-row" key={pkg.name}>
+                  {visible.map((pkg, rowIndex) => (
+                    <div
+                      className={`tm-row ${selection?.name === pkg.name ? "is-selected-row" : ""}`}
+                      key={pkg.name}
+                      style={{ "--r": rowIndex } as CSSProperties}
+                    >
                       <div className="tm-package">
                         <strong title={pkg.name}>{pkg.name}</strong>
                         <span>
@@ -1317,7 +1462,12 @@ export default function Timeline({
                                   : undefined
                               }
                               className={`tm-release ${isCurrent ? "is-current" : ""} ${isSelected ? "is-selected" : ""} ${isResolved ? "is-resolved" : ""} ${inExperiment ? "in-experiment" : ""} ${inDecision ? `in-decision decision-${selectedDecision?.outcome}` : ""} ${hasResearch ? "has-research" : ""}`}
-                              style={{ left: position(date) }}
+                              style={
+                                {
+                                  left: position(date),
+                                  "--d": Math.min(index, 24),
+                                } as CSSProperties
+                              }
                               key={`${release.version}-${index}`}
                               aria-label={`${pkg.name} version ${release.version}, released ${new Date(date).toLocaleDateString()}${isCurrent ? ", current" : ""}${isResolved ? ", resolver selected" : ""}${hasResearch ? ", research available" : ""}${`, ${evidenceStatus}`}`}
                               aria-pressed={isSelected}
@@ -1366,415 +1516,510 @@ export default function Timeline({
                   </div>
                   <h2>{selection.name}</h2>
                   <div className="tm-version">{selection.version}</div>
-                  <div className="tm-info">
-                    <span>Current version</span>
-                    <strong>{selectedPackage.current || "Unknown"}</strong>
-                  </div>
-                  <div className="tm-info">
-                    <span>Declared requirement</span>
-                    <code>
-                      {selectedPackage.requirement || "Not available"}
-                    </code>
-                  </div>
-                  {selectedPackage.source && (
-                    <p className="tm-limit">
-                      Requirement source: <code>{selectedPackage.source}</code>
-                      {selectedPackage.marker && (
-                        <>
-                          {" "}
-                          · Marker: <code>{selectedPackage.marker}</code>
-                        </>
-                      )}
-                    </p>
-                  )}
-                  <section
-                    className="tm-release-research"
-                    aria-label="Release research"
+                  <div
+                    className="tm-tabs"
+                    role="tablist"
+                    aria-label="Release inspector"
+                    style={{ "--tab": tabs.indexOf(tab) } as CSSProperties}
                   >
-                    <div className="tm-section-label">
-                      RELEASE RESEARCH <span>Advisory</span>
-                    </div>
-                    {research.isError && (
-                      <p className="tm-limit">Research could not be loaded.</p>
-                    )}
-                    {research.data
-                      ?.filter(
-                        (entry) =>
-                          entry.package === selection.name &&
-                          entry.version === selection.version,
-                      )
-                      .slice(0, 3)
-                      .map((entry, index) => (
-                        <details key={`${entry.searched_at}-${index}`}>
-                          <summary>
-                            Sources for {selection.version} ·{" "}
-                            {new Date(entry.searched_at).toLocaleDateString()}
-                          </summary>
-                          {entry.summary?.findings.map((finding, i) => (
-                            <p key={i}>
-                              <strong>{finding.category}:</strong>{" "}
-                              {finding.summary}{" "}
-                              {finding.source_urls.map((url, j) => (
-                                <a
-                                  key={url}
-                                  href={url}
-                                  target="_blank"
-                                  rel="noreferrer"
-                                >
-                                  [Source {j + 1}]{" "}
-                                </a>
-                              ))}
-                            </p>
-                          ))}
-                          {entry.summary?.limitations.map((text, i) => (
-                            <p className="tm-limit" key={i}>
-                              {text}
-                            </p>
-                          ))}
-                          {entry.sources.map((source) => (
-                            <p key={source.url}>
-                              <a
-                                href={source.url}
-                                target="_blank"
-                                rel="noreferrer"
-                              >
-                                {source.title}
-                              </a>
-                              {source.published_date &&
-                              dateValue(source.published_date) !== null
-                                ? ` · ${new Date(source.published_date).toLocaleDateString()}`
-                                : " · publication date unknown"}
-                            </p>
-                          ))}
-                          <p className="tm-limit">
-                            Search findings and model interpretations do not
-                            indicate test success.
-                          </p>
-                        </details>
-                      ))}
-                    {research.data &&
-                      !research.data.some(
-                        (entry) =>
-                          entry.package === selection.name &&
-                          entry.version === selection.version,
-                      ) && (
-                        <p className="tm-limit">
-                          No release-specific research yet. Search this
-                          dependency and version in What’s new.
-                        </p>
-                      )}
-                  </section>
-                  <div className="tm-resolution">
-                    <div className="tm-section-label">
-                      RESOLUTION{" "}
-                      <span>
-                        {resolution.isFetching
-                          ? "Checking"
-                          : resolution.data
-                            ? resolution.data.status === "resolved"
-                              ? "Resolved"
-                              : resolution.data.status === "conflict"
-                                ? "Conflict"
-                                : resolution.data.status === "unsupported"
-                                  ? "Unsupported"
-                                  : "Resolution error"
-                            : "Not tested"}
-                      </span>
-                    </div>
-                    {resolution.isFetching ? (
-                      <ActivityVisual
-                        mode="resolution"
-                        activity={resolutionActivity.data}
-                      />
-                    ) : resolution.error ? (
-                      <p role="alert">{resolution.error.message}</p>
-                    ) : resolution.data ? (
+                    <span className="tm-tab-indicator" aria-hidden="true" />
+                    {tabs.map((name) => (
+                      <button
+                        key={name}
+                        type="button"
+                        role="tab"
+                        id={`tm-tab-${name}`}
+                        aria-selected={tab === name}
+                        aria-controls="tm-tab-panel"
+                        onClick={() => setTab(name)}
+                      >
+                        {name === "overview" ? (
+                          <Info size={14} />
+                        ) : name === "resolve" ? (
+                          <Layers size={14} />
+                        ) : (
+                          <FlaskConical size={14} />
+                        )}
+                        {name === "overview"
+                          ? "Overview"
+                          : name === "resolve"
+                            ? "Resolve"
+                            : "Test"}
+                        {name === "resolve" && resolution.isFetching && (
+                          <i className="live-dot" />
+                        )}
+                        {name === "resolve" &&
+                          !resolution.isFetching &&
+                          resolution.data && (
+                            <i
+                              className={`tm-tab-dot is-${resolution.data.status}`}
+                            />
+                          )}
+                        {name === "test" && queued.length > 0 && (
+                          <span className="tm-count">{queued.length}</span>
+                        )}
+                      </button>
+                    ))}
+                  </div>
+                  <div
+                    className="tm-tab-panel"
+                    id="tm-tab-panel"
+                    role="tabpanel"
+                    aria-labelledby={`tm-tab-${tab}`}
+                    key={tab}
+                  >
+                    {tab === "overview" && (
                       <>
-                        <p>{resolution.data.message}</p>
-                        {resolution.data.explanation_status ===
-                          "unavailable" && (
+                        <div className="tm-info">
+                          <span>Current version</span>
+                          <strong>
+                            {selectedPackage.current || "Unknown"}
+                          </strong>
+                        </div>
+                        <div className="tm-info">
+                          <span>Declared requirement</span>
+                          <code>
+                            {selectedPackage.requirement || "Not available"}
+                          </code>
+                        </div>
+                        {selectedPackage.source && (
                           <p className="tm-limit">
-                            Model conflict explanation unavailable. The native
-                            resolver output remains available above.
+                            Requirement source:{" "}
+                            <code>{selectedPackage.source}</code>
+                            {selectedPackage.marker && (
+                              <>
+                                {" "}
+                                · Marker: <code>{selectedPackage.marker}</code>
+                              </>
+                            )}
                           </p>
                         )}
-                        {resolution.data.explanation && (
-                          <details>
-                            <summary>
-                              Nemotron explanation <ChevronDown size={14} />
-                            </summary>
-                            <p>{resolution.data.explanation.summary}</p>
-                            {resolution.data.explanation.suggestions.map(
-                              (item, i) => (
-                                <p key={i}>{item}</p>
-                              ),
-                            )}
-                            {resolution.data.explanation.limitations.map(
-                              (item, i) => (
-                                <p className="tm-limit" key={i}>
-                                  {item}
+                        <section
+                          className="tm-release-research"
+                          aria-label="Release research"
+                        >
+                          <div className="tm-section-label">
+                            RELEASE RESEARCH <span>Advisory</span>
+                          </div>
+                          {research.isError && (
+                            <p className="tm-limit">
+                              Research could not be loaded.
+                            </p>
+                          )}
+                          {research.data
+                            ?.filter(
+                              (entry) =>
+                                entry.package === selection.name &&
+                                entry.version === selection.version,
+                            )
+                            .slice(0, 3)
+                            .map((entry, index) => (
+                              <details key={`${entry.searched_at}-${index}`}>
+                                <summary>
+                                  Sources for {selection.version} ·{" "}
+                                  {new Date(
+                                    entry.searched_at,
+                                  ).toLocaleDateString()}
+                                </summary>
+                                {entry.summary?.findings.map((finding, i) => (
+                                  <p key={i}>
+                                    <strong>{finding.category}:</strong>{" "}
+                                    {finding.summary}{" "}
+                                    {finding.source_urls.map((url, j) => (
+                                      <a
+                                        key={url}
+                                        href={url}
+                                        target="_blank"
+                                        rel="noreferrer"
+                                      >
+                                        [Source {j + 1}]{" "}
+                                      </a>
+                                    ))}
+                                  </p>
+                                ))}
+                                {entry.summary?.limitations.map((text, i) => (
+                                  <p className="tm-limit" key={i}>
+                                    {text}
+                                  </p>
+                                ))}
+                                {entry.sources.map((source) => (
+                                  <p key={source.url}>
+                                    <a
+                                      href={source.url}
+                                      target="_blank"
+                                      rel="noreferrer"
+                                    >
+                                      {source.title}
+                                    </a>
+                                    {source.published_date &&
+                                    dateValue(source.published_date) !== null
+                                      ? ` · ${new Date(source.published_date).toLocaleDateString()}`
+                                      : " · publication date unknown"}
+                                  </p>
+                                ))}
+                                <p className="tm-limit">
+                                  Search findings and model interpretations do
+                                  not indicate test success.
                                 </p>
-                              ),
+                              </details>
+                            ))}
+                          {research.data &&
+                            !research.data.some(
+                              (entry) =>
+                                entry.package === selection.name &&
+                                entry.version === selection.version,
+                            ) && (
+                              <p className="tm-limit">
+                                No release-specific research yet. Search this
+                                dependency and version in What’s new.
+                              </p>
                             )}
-                            <p className="tm-limit">
-                              Model suggestions are advisory and have not been
-                              tested.
-                            </p>
-                          </details>
-                        )}
-                        {Object.keys(resolution.data.requirements).length >
-                          0 && (
-                          <details>
+                        </section>
+                        {undated.length > 0 && (
+                          <details className="tm-undated">
                             <summary>
-                              Declared requirements <ChevronDown size={14} />
+                              {undated.length} releases without dates
                             </summary>
-                            <dl>
-                              {Object.entries(resolution.data.requirements).map(
-                                ([name, requirement]) => (
-                                  <div key={name}>
-                                    <dt>{name}</dt>
-                                    <dd>{requirement}</dd>
-                                  </div>
-                                ),
-                              )}
-                            </dl>
-                          </details>
-                        )}
-                        {Object.keys(resolution.data.selected || {}).length >
-                          0 && (
-                          <details>
-                            <summary>
-                              Resolved dependency set <ChevronDown size={14} />
-                            </summary>
-                            <dl>
-                              {Object.entries(resolution.data.selected).map(
-                                ([name, version]) => (
-                                  <div key={name}>
-                                    <dt>{name}</dt>
-                                    <dd>
-                                      {version}
-                                      {resolution.data?.requirements?.[
-                                        name
-                                      ] && (
-                                        <small>
-                                          {resolution.data.requirements[name]}
-                                        </small>
-                                      )}
-                                    </dd>
-                                  </div>
-                                ),
-                              )}
-                            </dl>
-                          </details>
-                        )}
-                        {!!resolution.data.edges?.length && (
-                          <details>
-                            <summary>
-                              Declared connections (
-                              {resolution.data.edges.length}){" "}
-                              <ChevronDown size={14} />
-                            </summary>
-                            <dl>
-                              {resolution.data.edges.map((edge, index) => (
-                                <div
-                                  key={`${edge.source}-${edge.target}-${index}`}
+                            <div>
+                              {undated.map((release) => (
+                                <button
+                                  type="button"
+                                  key={release.version}
+                                  onClick={() =>
+                                    choose(
+                                      selectedPackage.name,
+                                      release.version,
+                                    )
+                                  }
                                 >
-                                  <dt>
-                                    {edge.source} → {edge.target}
-                                  </dt>
-                                  <dd>{edge.requirement || "Any version"}</dd>
-                                </div>
+                                  {release.version}
+                                </button>
                               ))}
-                            </dl>
-                            <p className="tm-limit">
-                              Declarations can be optional or conditional. A
-                              line does not mean the combination passed tests.
-                            </p>
+                            </div>
                           </details>
                         )}
                       </>
-                    ) : (
-                      <p>Resolution has not started.</p>
                     )}
-                    <p className="tm-limit">
-                      A resolved set has not necessarily passed tests.
-                    </p>
-                  </div>
-                  <div className="tm-experiment">
-                    <div className="tm-section-label">
-                      SANDBOX EXPERIMENT <span>OPTIONAL</span>
-                    </div>
-                    <p>
-                      Add releases from up to five dependencies. Every selected
-                      combination runs the same tests, with up to three Sandbox
-                      branches at once.
-                    </p>
-                    <button
-                      type="button"
-                      className="tm-add-version"
-                      onClick={() => toggleVersion(selection.version)}
-                      disabled={
-                        !queued.some(
-                          (item) =>
-                            item.name === selection.name &&
-                            item.version === selection.version,
-                        ) &&
-                        (queued.filter((item) => item.name === selection.name)
-                          .length >= 5 ||
-                          (!queued.some(
-                            (item) => item.name === selection.name,
-                          ) &&
-                            new Set(queued.map((item) => item.name)).size >= 5))
-                      }
-                    >
-                      {queued.some(
-                        (item) =>
-                          item.name === selection.name &&
-                          item.version === selection.version,
-                      )
-                        ? "Remove this version"
-                        : "Add this version to test"}
-                    </button>
-                    {queued.length > 0 && (
-                      <div className="tm-queued">
-                        {queued.map((item) => (
-                          <button
-                            key={`${item.name}-${item.version}`}
-                            type="button"
-                            aria-label={`Remove ${item.name} ${item.version} from experiment`}
-                            onClick={() =>
-                              setQueued((current) =>
-                                current.filter(
-                                  (entry) =>
-                                    entry.name !== item.name ||
-                                    entry.version !== item.version,
-                                ),
-                              )
-                            }
-                          >
-                            {item.name} {item.version} <span>×</span>
-                          </button>
-                        ))}
+                    {tab === "resolve" && (
+                      <div className="tm-resolution">
+                        <div className="tm-section-label">
+                          RESOLUTION{" "}
+                          <span>
+                            {resolution.isFetching
+                              ? "Checking"
+                              : resolution.data
+                                ? resolution.data.status === "resolved"
+                                  ? "Resolved"
+                                  : resolution.data.status === "conflict"
+                                    ? "Conflict"
+                                    : resolution.data.status === "unsupported"
+                                      ? "Unsupported"
+                                      : "Resolution error"
+                                : "Not tested"}
+                          </span>
+                        </div>
+                        {resolution.isFetching ? (
+                          <ActivityVisual
+                            mode="resolution"
+                            activity={resolutionActivity.data}
+                          />
+                        ) : resolution.error ? (
+                          <p role="alert">{resolution.error.message}</p>
+                        ) : resolution.data ? (
+                          <>
+                            {resolution.data.message.length > 280 ||
+                            resolution.data.message.includes("\n") ? (
+                              <LogView
+                                title="Resolver output"
+                                text={resolution.data.message}
+                              />
+                            ) : (
+                              <p>{resolution.data.message}</p>
+                            )}
+                            {resolution.data.explanation_status ===
+                              "unavailable" && (
+                              <p className="tm-limit">
+                                Model conflict explanation unavailable. The
+                                native resolver output remains available above.
+                              </p>
+                            )}
+                            {resolution.data.explanation && (
+                              <details>
+                                <summary>
+                                  Nemotron explanation <ChevronDown size={14} />
+                                </summary>
+                                <p>{resolution.data.explanation.summary}</p>
+                                {resolution.data.explanation.suggestions.map(
+                                  (item, i) => (
+                                    <p key={i}>{item}</p>
+                                  ),
+                                )}
+                                {resolution.data.explanation.limitations.map(
+                                  (item, i) => (
+                                    <p className="tm-limit" key={i}>
+                                      {item}
+                                    </p>
+                                  ),
+                                )}
+                                <p className="tm-limit">
+                                  Model suggestions are advisory and have not
+                                  been tested.
+                                </p>
+                              </details>
+                            )}
+                            {Object.keys(resolution.data.requirements).length >
+                              0 && (
+                              <details>
+                                <summary>
+                                  Declared requirements{" "}
+                                  <ChevronDown size={14} />
+                                </summary>
+                                <dl>
+                                  {Object.entries(
+                                    resolution.data.requirements,
+                                  ).map(([name, requirement]) => (
+                                    <div key={name}>
+                                      <dt>{name}</dt>
+                                      <dd>{requirement}</dd>
+                                    </div>
+                                  ))}
+                                </dl>
+                              </details>
+                            )}
+                            {Object.keys(resolution.data.selected || {})
+                              .length > 0 && (
+                              <details>
+                                <summary>
+                                  Resolved dependency set{" "}
+                                  <ChevronDown size={14} />
+                                </summary>
+                                <dl>
+                                  {Object.entries(resolution.data.selected).map(
+                                    ([name, version]) => (
+                                      <div key={name}>
+                                        <dt>{name}</dt>
+                                        <dd>
+                                          {version}
+                                          {resolution.data?.requirements?.[
+                                            name
+                                          ] && (
+                                            <small>
+                                              {
+                                                resolution.data.requirements[
+                                                  name
+                                                ]
+                                              }
+                                            </small>
+                                          )}
+                                        </dd>
+                                      </div>
+                                    ),
+                                  )}
+                                </dl>
+                              </details>
+                            )}
+                            {!!resolution.data.edges?.length && (
+                              <details>
+                                <summary>
+                                  Declared connections (
+                                  {resolution.data.edges.length}){" "}
+                                  <ChevronDown size={14} />
+                                </summary>
+                                <dl>
+                                  {resolution.data.edges.map((edge, index) => (
+                                    <div
+                                      key={`${edge.source}-${edge.target}-${index}`}
+                                    >
+                                      <dt>
+                                        {edge.source} → {edge.target}
+                                      </dt>
+                                      <dd>
+                                        {edge.requirement || "Any version"}
+                                      </dd>
+                                    </div>
+                                  ))}
+                                </dl>
+                                <p className="tm-limit">
+                                  Declarations can be optional or conditional. A
+                                  line does not mean the combination passed
+                                  tests.
+                                </p>
+                              </details>
+                            )}
+                          </>
+                        ) : (
+                          <p>Resolution has not started.</p>
+                        )}
+                        <p className="tm-limit">
+                          A resolved set has not necessarily passed tests.
+                        </p>
                       </div>
                     )}
-                    {!!queued.length && (
-                      <p className="tm-limit" role="status">
-                        {combinationCount} combinations selected; maximum 12.{" "}
-                        {combinationCount > 12 &&
-                          "Remove releases to continue."}
-                      </p>
-                    )}
-                    {!!queued.length && (
-                      <label>
-                        Upgrade goal (optional)
-                        <select
-                          value={
-                            queued.some(
-                              (item) => JSON.stringify(item) === goalChoice,
-                            )
-                              ? goalChoice
-                              : ""
-                          }
-                          onChange={(event) =>
-                            setGoalChoice(event.target.value)
+                    {tab === "test" && (
+                      <div className="tm-experiment">
+                        <div className="tm-section-label">
+                          SANDBOX EXPERIMENT <span>OPTIONAL</span>
+                        </div>
+                        <p>
+                          Add releases from up to five dependencies. Every
+                          selected combination runs the same tests, with up to
+                          three Sandbox branches at once.
+                        </p>
+                        <button
+                          type="button"
+                          className="tm-add-version"
+                          onClick={() => toggleVersion(selection.version)}
+                          disabled={
+                            !queued.some(
+                              (item) =>
+                                item.name === selection.name &&
+                                item.version === selection.version,
+                            ) &&
+                            (queued.filter(
+                              (item) => item.name === selection.name,
+                            ).length >= 5 ||
+                              (!queued.some(
+                                (item) => item.name === selection.name,
+                              ) &&
+                                new Set(queued.map((item) => item.name)).size >=
+                                  5))
                           }
                         >
-                          <option value="">
-                            Compare every selected combination
-                          </option>
-                          {queued.map((item) => (
-                            <option
-                              key={`${item.name}-${item.version}`}
-                              value={JSON.stringify(item)}
+                          {queued.some(
+                            (item) =>
+                              item.name === selection.name &&
+                              item.version === selection.version,
+                          )
+                            ? "Remove this version"
+                            : "Add this version to test"}
+                        </button>
+                        {queued.length > 0 && (
+                          <div className="tm-queued">
+                            {queued.map((item) => (
+                              <button
+                                key={`${item.name}-${item.version}`}
+                                type="button"
+                                aria-label={`Remove ${item.name} ${item.version} from experiment`}
+                                onClick={() =>
+                                  setQueued((current) =>
+                                    current.filter(
+                                      (entry) =>
+                                        entry.name !== item.name ||
+                                        entry.version !== item.version,
+                                    ),
+                                  )
+                                }
+                              >
+                                {item.name} {item.version} <span>×</span>
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                        {!!queued.length && (
+                          <p className="tm-limit" role="status">
+                            {combinationCount} combinations selected; maximum
+                            12.{" "}
+                            {combinationCount > 12 &&
+                              "Remove releases to continue."}
+                          </p>
+                        )}
+                        {!!queued.length && (
+                          <label>
+                            Upgrade goal (optional)
+                            <select
+                              value={
+                                queued.some(
+                                  (item) => JSON.stringify(item) === goalChoice,
+                                )
+                                  ? goalChoice
+                                  : ""
+                              }
+                              onChange={(event) =>
+                                setGoalChoice(event.target.value)
+                              }
                             >
-                              Require {item.name} {item.version}
-                            </option>
-                          ))}
-                        </select>
-                      </label>
-                    )}
-                    <label>
-                      Test command
-                      <input
-                        value={testCommand}
-                        onChange={(event) => setTestCommand(event.target.value)}
-                        placeholder="e.g. python -m pytest"
-                      />
-                    </label>
-                    {!["bun", "go", "cargo"].includes(analysis.manager) ? (
-                      <label className="tm-dependency-repair">
-                        <input
-                          type="checkbox"
-                          checked={allowDependencyRepair}
-                          onChange={(event) =>
-                            setAllowDependencyRepair(event.target.checked)
+                              <option value="">
+                                Compare every selected combination
+                              </option>
+                              {queued.map((item) => (
+                                <option
+                                  key={`${item.name}-${item.version}`}
+                                  value={JSON.stringify(item)}
+                                >
+                                  Require {item.name} {item.version}
+                                </option>
+                              ))}
+                            </select>
+                          </label>
+                        )}
+                        <label>
+                          Test command
+                          <input
+                            value={testCommand}
+                            onChange={(event) =>
+                              setTestCommand(event.target.value)
+                            }
+                            placeholder="e.g. python -m pytest"
+                          />
+                        </label>
+                        {!["bun", "go", "cargo"].includes(analysis.manager) ? (
+                          <label className="tm-dependency-repair">
+                            <input
+                              type="checkbox"
+                              checked={allowDependencyRepair}
+                              onChange={(event) =>
+                                setAllowDependencyRepair(event.target.checked)
+                              }
+                            />{" "}
+                            If a source repair fails, let Nemotron propose
+                            dependency changes and reinstall them in a fresh
+                            Sandbox. When Tavily is configured, dependency
+                            names, the selected version, and an extracted error
+                            keyword may be sent for public research.
+                          </label>
+                        ) : (
+                          <p>
+                            Dependency-file repair is not available for{" "}
+                            {analysis.manager}.{" "}
+                            {analysis.manager === "cargo" &&
+                              "Rust source repair is also unavailable because tests may be embedded in source files."}
+                          </p>
+                        )}
+                        <button
+                          type="button"
+                          className="primary tm-run"
+                          disabled={
+                            !queued.length ||
+                            combinationCount > 12 ||
+                            !testCommand.trim() ||
+                            submitting ||
+                            !!(
+                              run.data &&
+                              [
+                                "queued",
+                                "running",
+                                "preparing",
+                                "testing",
+                              ].includes(run.data.status)
+                            )
                           }
-                        />{" "}
-                        If a source repair fails, let Nemotron propose
-                        dependency changes and reinstall them in a fresh
-                        Sandbox. When Tavily is configured, dependency names,
-                        the selected version, and an extracted error keyword may
-                        be sent for public research.
-                      </label>
-                    ) : (
-                      <p>
-                        Dependency-file repair is not available for{" "}
-                        {analysis.manager}.{" "}
-                        {analysis.manager === "cargo" &&
-                          "Rust source repair is also unavailable because tests may be embedded in source files."}
-                      </p>
-                    )}
-                    <button
-                      type="button"
-                      className="primary tm-run"
-                      disabled={
-                        !queued.length ||
-                        combinationCount > 12 ||
-                        !testCommand.trim() ||
-                        submitting ||
-                        !!(
-                          run.data &&
-                          [
-                            "queued",
-                            "running",
-                            "preparing",
-                            "testing",
-                          ].includes(run.data.status)
-                        )
-                      }
-                      onClick={startRun}
-                    >
-                      <FlaskConical size={15} />{" "}
-                      {submitting ? "Starting…" : "Run Sandbox tests"}
-                    </button>
-                    <p className="tm-limit">
-                      Runs code and may consume Nebius credits. Review the
-                      command before starting.
-                    </p>
-                    {runError && (
-                      <p role="alert" className="tm-run-error">
-                        {runError}
-                      </p>
+                          onClick={startRun}
+                        >
+                          <FlaskConical size={15} />{" "}
+                          {submitting ? "Starting…" : "Run Sandbox tests"}
+                        </button>
+                        <p className="tm-limit">
+                          Runs code and may consume Nebius credits. Review the
+                          command before starting.
+                        </p>
+                        {runError && (
+                          <p role="alert" className="tm-run-error">
+                            {runError}
+                          </p>
+                        )}
+                      </div>
                     )}
                   </div>
-                  {undated.length > 0 && (
-                    <details className="tm-undated">
-                      <summary>{undated.length} releases without dates</summary>
-                      <div>
-                        {undated.map((release) => (
-                          <button
-                            type="button"
-                            key={release.version}
-                            onClick={() =>
-                              choose(selectedPackage.name, release.version)
-                            }
-                          >
-                            {release.version}
-                          </button>
-                        ))}
-                      </div>
-                    </details>
-                  )}
                 </>
               ) : (
                 <div className="tm-no-selection">
@@ -1791,7 +2036,7 @@ export default function Timeline({
             </aside>
           </div>
           {runId && (
-            <section className="tm-results">
+            <section className="tm-results" ref={resultsRef}>
               <div className="tm-results-head">
                 <div>
                   <span className="tm-step">03</span>
@@ -1813,7 +2058,7 @@ export default function Timeline({
                   )}
               </div>
               {run.isPending ? (
-                <p role="status">Loading experiment…</p>
+                <Skeleton rows={4} label="Loading experiment" />
               ) : run.error ? (
                 <p role="alert" className="error">
                   {run.error.message}
@@ -1821,13 +2066,29 @@ export default function Timeline({
               ) : (
                 run.data && (
                   <>
-                    <div className="tm-run-status">
+                    <div
+                      className={`tm-run-status status-${run.data.status}`}
+                      role="status"
+                    >
                       <span
-                        className={`tm-result-dot ${resultClass(run.data.status)}`}
-                      />{" "}
-                      {resultLabel(run.data.status)}{" "}
-                      {run.data.error && `· ${run.data.error}`}
+                        className={`tm-result-dot ${["queued", "running", "preparing", "testing", "cancelling"].includes(run.data.status) ? "live" : run.data.status === "completed" ? "done" : resultClass(run.data.status)}`}
+                      />
+                      <strong>{resultLabel(run.data.status)}</strong>
+                      <span className="tm-run-tally">
+                        {run.data.results.length} combination
+                        {run.data.results.length === 1 ? "" : "s"}
+                        {run.data.goal &&
+                          ` · goal ${run.data.goal.package} ${run.data.goal.version}`}
+                      </span>
+                      <code className="tm-run-command">
+                        <Terminal size={13} /> {run.data.test_command}
+                      </code>
                     </div>
+                    {run.data.error && (
+                      <p className="error" role="alert">
+                        {run.data.error}
+                      </p>
+                    )}
                     {[
                       "queued",
                       "running",
@@ -1853,15 +2114,21 @@ export default function Timeline({
                     )}
                     {!!run.data.activity_history?.length && (
                       <details className="tm-agent-history">
-                        <summary>Recorded activity</summary>
-                        <ol>
+                        <summary>
+                          <HistoryIcon size={15} /> Recorded activity
+                          <span className="tm-count">
+                            {run.data.activity_history.length}
+                          </span>
+                          <ChevronDown size={14} className="tm-chevron" />
+                        </summary>
+                        <ol className="tm-rail">
                           {run.data.activity_history.map((event, index) => (
                             <li key={`${event.at}-${index}`}>
                               <time>
                                 {new Date(event.at * 1000).toLocaleTimeString()}
-                              </time>{" "}
-                              · {event.stage.replaceAll("_", " ")}
-                              {event.version ? ` · ${event.version}` : ""}
+                              </time>
+                              <span>{event.stage.replaceAll("_", " ")}</span>
+                              {event.version && <code>{event.version}</code>}
                             </li>
                           ))}
                         </ol>
@@ -1874,23 +2141,43 @@ export default function Timeline({
                     {!!run.data.agent_decisions?.length && (
                       <details className="tm-agent-history">
                         <summary>
-                          Agent plan and decisions (
-                          {run.data.agent_decisions.length})
+                          <Bot size={15} /> Agent plan and decisions
+                          <span className="tm-count">
+                            {run.data.agent_decisions.length}
+                          </span>
+                          <ChevronDown size={14} className="tm-chevron" />
                         </summary>
                         <p className="tm-limit">
                           Model-authored plans are provisional. Tool actions and
                           exit codes are recorded observations, not proof of a
                           verified repair.
                         </p>
-                        <ol>
+                        <ol className="tm-rail tm-decisions">
                           {run.data.agent_decisions.map((event, index) => (
-                            <li key={`${event.at}-${index}`}>
-                              <time>
-                                {new Date(event.at * 1000).toLocaleTimeString()}
-                              </time>{" "}
-                              · {event.version} ·{" "}
-                              {event.kind.replaceAll("_", " ")}
-                              {event.turn ? ` ${event.turn}` : ""}
+                            <li
+                              key={`${event.at}-${index}`}
+                              className={`kind-${event.kind} ${event.kind === "tool_result" && event.exit_code ? "is-nonzero" : ""}`}
+                            >
+                              <div className="tm-rail-head">
+                                <time>
+                                  {new Date(
+                                    event.at * 1000,
+                                  ).toLocaleTimeString()}
+                                </time>
+                                <span className="tm-kind">
+                                  {event.kind === "tool" ||
+                                  event.kind === "tool_result" ? (
+                                    <Wrench size={12} />
+                                  ) : event.kind === "model" ? (
+                                    <Sparkles size={12} />
+                                  ) : (
+                                    <Bot size={12} />
+                                  )}
+                                  {event.kind.replaceAll("_", " ")}
+                                  {event.turn ? ` ${event.turn}` : ""}
+                                </span>
+                                <code>{event.version}</code>
+                              </div>
                               {event.goal && (
                                 <p>
                                   <strong>Goal:</strong> {event.goal}
@@ -1916,8 +2203,10 @@ export default function Timeline({
                               )}
                               {event.kind === "tool" && (
                                 <p>
-                                  Requested {event.tool}:{" "}
-                                  <code>{event.input}</code>
+                                  Requested {event.tool}:
+                                  <code className="tm-tool-input">
+                                    {event.input}
+                                  </code>
                                 </p>
                               )}
                               {event.kind === "tool_result" && (
@@ -2052,27 +2341,46 @@ export default function Timeline({
                                         : ""
                                     }
                                   >
-                                    <td>{label}</td>
                                     <td>
-                                      {result.resolution_status === "succeeded"
-                                        ? "Succeeded"
-                                        : result.resolution_status
-                                          ? "Failed or inconclusive"
-                                          : "Not recorded"}
+                                      <span className="tm-combo">
+                                        {Object.entries(option.combination).map(
+                                          ([name, version]) => (
+                                            <code key={name}>
+                                              {name} <b>{version}</b>
+                                            </code>
+                                          ),
+                                        )}
+                                      </span>
                                     </td>
                                     <td>
-                                      {option.outcome === "passed"
-                                        ? "Tests passed"
-                                        : option.outcome === "repair"
-                                          ? option.dependencyRepairIndex !==
-                                            undefined
-                                            ? "Dependency patch verified"
-                                            : "Tests failed; source patch verified"
-                                          : option.outcome === "failed"
-                                            ? "Tests failed"
-                                            : "Not tested or inconclusive"}
-                                      {result.repair_pending &&
-                                        " · investigating"}
+                                      <span
+                                        className={`tm-chip ${result.resolution_status === "succeeded" ? "passed" : result.resolution_status ? "failed" : ""}`}
+                                      >
+                                        {result.resolution_status ===
+                                        "succeeded"
+                                          ? "Succeeded"
+                                          : result.resolution_status
+                                            ? "Failed or inconclusive"
+                                            : "Not recorded"}
+                                      </span>
+                                    </td>
+                                    <td>
+                                      <span
+                                        className={`tm-chip ${option.outcome}`}
+                                      >
+                                        {option.outcome === "passed"
+                                          ? "Tests passed"
+                                          : option.outcome === "repair"
+                                            ? option.dependencyRepairIndex !==
+                                              undefined
+                                              ? "Dependency patch verified"
+                                              : "Tests failed; source patch verified"
+                                            : option.outcome === "failed"
+                                              ? "Tests failed"
+                                              : "Not tested or inconclusive"}
+                                        {result.repair_pending &&
+                                          " · investigating"}
+                                      </span>
                                     </td>
                                     <td>
                                       <button
@@ -2141,44 +2449,73 @@ function ResultCard({ title, result }: { title: string; result: Result }) {
     .filter(Boolean)
     .join("\n");
   return (
-    <details className="tm-result">
+    <details className={`tm-result is-${resultClass(status)}`}>
       <summary>
         <span>
-          <i className={`tm-result-dot ${resultClass(status)}`} />{" "}
+          <i className={`tm-result-dot ${resultClass(status)}`} />
           <strong>{title}</strong>
         </span>
         <span>
-          {resultLabel(status)} <ChevronDown size={14} />
+          <span className={`tm-chip ${status}`}>{resultLabel(status)}</span>
+          <ChevronDown size={14} className="tm-chevron" />
         </span>
       </summary>
       <div>
-        <p>Exit code: {result.exit_code ?? "not available"}</p>
-        {result.operation_id && (
-          <p>
-            Operation: <code>{result.operation_id}</code>
+        <dl className="tm-result-facts">
+          <div>
+            <dt>Exit code</dt>
+            <dd>
+              <code>{result.exit_code ?? "not available"}</code>
+            </dd>
+          </div>
+          {result.operation_id && (
+            <div>
+              <dt>Operation</dt>
+              <dd>
+                <code>{result.operation_id}</code>
+              </dd>
+            </div>
+          )}
+          {result.image_id && (
+            <div>
+              <dt>Image</dt>
+              <dd>
+                <code>{result.image_id}</code>
+              </dd>
+            </div>
+          )}
+        </dl>
+        {result.error && (
+          <p className="tm-result-error" role="alert">
+            {result.error}
           </p>
         )}
-        {result.image_id && (
-          <p>
-            Image: <code>{result.image_id}</code>
-          </p>
-        )}
-        {result.error && <p>{result.error}</p>}
         {result.timed_out && (
           <p>The command timed out; the result is inconclusive.</p>
         )}
         {result.installation && (
-          <details>
-            <summary>Installation output</summary>
-            <pre>
-              {installationOutput || "No installation output available."}
-            </pre>
+          <details className="tm-sub">
+            <summary>
+              Installation output{" "}
+              <ChevronDown size={14} className="tm-chevron" />
+            </summary>
+            <LogView
+              title="Installation"
+              text={installationOutput}
+              empty="No installation output available."
+            />
           </details>
         )}
-        <pre>{output || "No test output available."}</pre>
+        <LogView
+          title="Test output"
+          text={output}
+          empty="No test output available."
+        />
         {result.explanation && (
-          <section className="tm-repair">
-            <h3>Nemotron investigation</h3>
+          <section className="tm-repair tm-investigation">
+            <h3>
+              <Sparkles size={14} /> Nemotron investigation
+            </h3>
             <p>{result.explanation}</p>
             <p className="tm-limit">
               Model explanation is advisory; inspect the recorded test output
@@ -2188,7 +2525,9 @@ function ResultCard({ title, result }: { title: string; result: Result }) {
         )}
         {result.repair && (
           <section className="tm-repair">
-            <h3>Proposed repair</h3>
+            <h3>
+              <Wrench size={14} /> Proposed repair
+            </h3>
             <p>
               <strong>
                 {
@@ -2214,7 +2553,7 @@ function ResultCard({ title, result }: { title: string; result: Result }) {
                 >
                   Download source patch
                 </a>
-                <pre>{result.repair.patch}</pre>
+                <LogView diff title="Source patch" text={result.repair.patch} />
               </details>
             )}
             {result.repair.verification && (
@@ -2235,7 +2574,9 @@ function ResultCard({ title, result }: { title: string; result: Result }) {
             : []
         ).map((proposal, index) => (
           <section className="tm-repair" key={index}>
-            <h3>Dependency change proposal {index + 1}</h3>
+            <h3>
+              <Wrench size={14} /> Dependency change proposal {index + 1}
+            </h3>
             <p>
               <strong>
                 {proposal.status === "verified"
@@ -2245,11 +2586,13 @@ function ResultCard({ title, result }: { title: string; result: Result }) {
             </p>
             {proposal.explanation && <p>{proposal.explanation}</p>}
             {proposal.changes?.length > 0 && (
-              <p>
-                Proposed:{" "}
-                {proposal.changes
-                  .map((change) => `${change.package} ${change.version}`)
-                  .join(" · ")}
+              <p className="tm-combo">
+                Proposed:
+                {proposal.changes.map((change) => (
+                  <code key={change.package}>
+                    {change.package} <b>{change.version}</b>
+                  </code>
+                ))}
               </p>
             )}
             {!!proposal.research?.length && (
@@ -2280,7 +2623,7 @@ function ResultCard({ title, result }: { title: string; result: Result }) {
                 >
                   Download dependency patch
                 </a>
-                <pre>{proposal.patch}</pre>
+                <LogView diff title="Dependency patch" text={proposal.patch} />
               </details>
             )}
             {proposal.independent_installation && (
@@ -2289,10 +2632,15 @@ function ResultCard({ title, result }: { title: string; result: Result }) {
                   Fresh branch installation · exit{" "}
                   {proposal.independent_installation.exit_code ?? "unknown"}
                 </summary>
-                <pre>
-                  {proposal.independent_installation.stdout}
-                  {proposal.independent_installation.stderr}
-                </pre>
+                <LogView
+                  title="Fresh branch installation"
+                  text={[
+                    proposal.independent_installation.stdout,
+                    proposal.independent_installation.stderr,
+                  ]
+                    .filter(Boolean)
+                    .join("\n")}
+                />
               </details>
             )}
             {proposal.verification && (

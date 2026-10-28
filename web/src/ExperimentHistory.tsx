@@ -1,8 +1,8 @@
 import { useDeferredValue, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { ArrowRight } from "lucide-react";
+import { ArrowRight, FlaskConical, Search } from "lucide-react";
 import { api } from "./api";
-import { Pager } from "./ui";
+import { Pager, Skeleton, Status } from "./ui";
 import "./history.css";
 
 type Experiment = {
@@ -69,16 +69,19 @@ export default function ExperimentHistory({
         </p>
       )}
       <div className="filters">
-        <input
-          type="search"
-          aria-label="Search experiments"
-          placeholder="Search project, dependency or run"
-          value={search}
-          onChange={(e) => {
-            setSearch(e.target.value);
-            setPage(0);
-          }}
-        />
+        <label className="search-field">
+          <Search size={15} aria-hidden="true" />
+          <input
+            type="search"
+            aria-label="Search experiments"
+            placeholder="Search project, dependency or run"
+            value={search}
+            onChange={(e) => {
+              setSearch(e.target.value);
+              setPage(0);
+            }}
+          />
+        </label>
         <select
           aria-label="Filter experiments"
           value={status}
@@ -96,7 +99,7 @@ export default function ExperimentHistory({
         </select>
       </div>
       {history.isPending ? (
-        <p role="status">Loading experiments…</p>
+        <Skeleton rows={5} label="Loading saved experiments" />
       ) : history.error ? (
         <p className="error" role="alert">
           {history.error.message}
@@ -109,30 +112,47 @@ export default function ExperimentHistory({
               className="history-row experiment-row"
               onClick={() => onOpen(run.id)}
             >
+              <span className="history-icon" aria-hidden="true">
+                <FlaskConical size={16} />
+              </span>
               <div>
                 <strong>{run.project_name || "Project unavailable"}</strong>
                 {run.evaluation && (
                   <small>Controlled evaluation: {run.evaluation}</small>
                 )}
-                <small>
+                <span className="history-versions">
                   {Object.entries(
                     run.selections || { [run.package]: run.versions },
-                  )
-                    .map(
-                      ([name, versions]) => `${name}: ${versions.join(", ")}`,
-                    )
-                    .join(" · ")}
-                </small>
+                  ).map(([name, versions]) => (
+                    <code key={name} title={`${name}: ${versions.join(", ")}`}>
+                      {name} <b>{versions.join(", ")}</b>
+                    </code>
+                  ))}
+                </span>
+              </div>
+              <span className="history-outcomes" aria-label="Test outcomes">
+                <span className="is-pass" title="Passed">
+                  {run.outcomes?.passed || 0}
+                </span>
+                <span className="is-fail" title="Failed">
+                  {run.outcomes?.failed || 0}
+                </span>
+                <span className="is-unknown" title="Inconclusive">
+                  {run.outcomes?.inconclusive || 0}
+                </span>
                 <small>
                   {run.outcomes?.passed || 0} passed ·{" "}
                   {run.outcomes?.failed || 0} failed ·{" "}
                   {run.outcomes?.inconclusive || 0} inconclusive
                 </small>
-              </div>
-              <span className="experiment-status">{run.status}</span>
+              </span>
+              <Status value={run.status} />
               <time>
                 {run.started_at
-                  ? new Date(run.started_at * 1000).toLocaleString()
+                  ? new Date(run.started_at * 1000).toLocaleString(undefined, {
+                      dateStyle: "medium",
+                      timeStyle: "short",
+                    })
                   : "Date unavailable"}
               </time>
               <ArrowRight size={16} />
@@ -140,9 +160,15 @@ export default function ExperimentHistory({
           ))}
         </div>
       ) : (
-        <div className="empty">
+        <div className="empty empty-card">
+          <span className="empty-icon" aria-hidden="true">
+            <FlaskConical size={20} />
+          </span>
           <h2>No matching experiments</h2>
           <p>Start a Sandbox experiment or adjust your filters.</p>
+          <button className="primary" onClick={onNew}>
+            Open time machine <ArrowRight size={15} />
+          </button>
         </div>
       )}
       <Pager

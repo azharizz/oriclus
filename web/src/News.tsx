@@ -1,6 +1,14 @@
-import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { ArrowRight, ExternalLink, RefreshCw, Search } from "lucide-react";
+import { type CSSProperties, useEffect, useMemo, useState } from "react";
+import {
+  ArrowRight,
+  ExternalLink,
+  Info,
+  Newspaper,
+  RefreshCw,
+  Search,
+} from "lucide-react";
+import { Skeleton } from "./ui";
 import { api } from "./api";
 import "./news.css";
 
@@ -188,6 +196,9 @@ export default function News({
         </button>
       </header>
       <div className="feed-intro">
+        <span className="feed-intro-icon" aria-hidden="true">
+          <Info size={16} />
+        </span>
         <div>
           <strong>
             {feed.isPending
@@ -198,15 +209,15 @@ export default function News({
             {" "}
             across {feed.data?.projects.length ?? 0} saved project analyses
           </span>
+          <p>
+            The feed is saved locally. Refresh searches Tavily once per matching
+            library, including those not yet shown, and may use credits; package
+            names, including private names, are sent to Tavily. Returned
+            excerpts may be sent to the configured model. Use the project and
+            name filters to limit the search. Related entries may be optional
+            and are not necessarily installed.
+          </p>
         </div>
-        <p>
-          The feed is saved locally. Refresh searches Tavily once per matching
-          library, including those not yet shown, and may use credits; package
-          names, including private names, are sent to Tavily. Returned excerpts
-          may be sent to the configured model. Use the project and name filters
-          to limit the search. Related entries may be optional and are not
-          necessarily installed.
-        </p>
       </div>
       {active && status.data && (
         <div className="feed-progress" role="status">
@@ -217,6 +228,23 @@ export default function News({
               {status.data.completed} of {status.data.total} completed ·{" "}
               {status.data.failed} failed
             </p>
+            <span
+              className="feed-progress-bar"
+              aria-hidden="true"
+              style={
+                {
+                  "--done": status.data.total
+                    ? status.data.completed / status.data.total
+                    : 0,
+                  "--bad": status.data.total
+                    ? status.data.failed / status.data.total
+                    : 0,
+                } as CSSProperties
+              }
+            >
+              <i />
+              <b />
+            </span>
           </div>
           <button
             onClick={cancel}
@@ -348,13 +376,16 @@ export default function News({
         </p>
       </details>
       {feed.isPending ? (
-        <p role="status">Loading your feed…</p>
+        <Skeleton rows={6} variant="cards" label="Loading your feed" />
       ) : feed.error ? (
         <p className="error" role="alert">
           {feed.error.message}
         </p>
       ) : !feed.data?.projects.length ? (
-        <div className="feed-empty">
+        <div className="feed-empty empty-card">
+          <span className="empty-icon" aria-hidden="true">
+            <Newspaper size={20} />
+          </span>
           <h2>Your feed starts with a project</h2>
           <p>
             Analyze a repository in Time Machine. Its dependencies will appear
@@ -362,18 +393,19 @@ export default function News({
           </p>
         </div>
       ) : !groups.length ? (
-        <p className="empty">No libraries match this filter.</p>
+        <p className="empty empty-card">No libraries match this filter.</p>
       ) : (
         <div className="feed-list">
-          {groups.slice(0, limit).map((group) => (
+          {groups.slice(0, limit).map((group, index) => (
             <article
-              className="feed-item"
+              className={`feed-item ${group.research.length ? "has-research" : ""}`}
+              style={{ "--i": index % 30 } as CSSProperties}
               key={`${group.ecosystem}:${group.name}`}
             >
               <div className="feed-item-head">
                 <div>
                   <div className="feed-item-meta">
-                    <span>
+                    <span className={`feed-eco eco-${group.ecosystem}`}>
                       {group.ecosystem === "node"
                         ? "JavaScript"
                         : group.ecosystem}
@@ -403,11 +435,9 @@ export default function News({
               </div>
               {group.latest ? (
                 <p className="feed-release">
-                  <strong>
-                    Most recently dated release: {group.latest.version}
-                  </strong>{" "}
+                  <span className="feed-release-label">Latest dated</span>
+                  <strong>{group.latest.version}</strong>
                   <span>
-                    ·{" "}
                     {new Date(group.latest.date).toLocaleDateString(undefined, {
                       year: "numeric",
                       month: "short",
@@ -508,7 +538,7 @@ export default function News({
           className="feed-more"
           onClick={() => setLimit((value) => value + 30)}
         >
-          Show more libraries
+          Show more libraries · {groups.length - limit} remaining
         </button>
       )}
       <p className="feed-footnote">

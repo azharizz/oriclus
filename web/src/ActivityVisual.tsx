@@ -1,4 +1,13 @@
-import { Box, FlaskConical, GitBranch, Search, Sparkles } from "lucide-react";
+import { useEffect, useState, type CSSProperties } from "react";
+import {
+  Box,
+  Check,
+  FlaskConical,
+  GitBranch,
+  Search,
+  Sparkles,
+} from "lucide-react";
+import { clock, useElapsed } from "./ui";
 
 export type Activity = {
   stage: string;
@@ -70,6 +79,16 @@ export default function ActivityVisual({
   mode: "scan" | "resolution" | "run";
 }) {
   const stage = activity?.stage || "queued";
+  const elapsed = useElapsed();
+  const [trail, setTrail] = useState<{ stage: string; at: number }[]>([]);
+  useEffect(() => {
+    setTrail((current) =>
+      current.at(-1)?.stage === stage
+        ? current
+        : [...current, { stage, at: elapsed }].slice(-6),
+    );
+    // Only stage changes belong in the trail; elapsed is read, not tracked.
+  }, [stage]);
   const steps =
     mode === "run"
       ? [
@@ -80,45 +99,106 @@ export default function ActivityVisual({
           { name: "Verify", icon: FlaskConical },
         ]
       : mode === "scan"
-        ? [{ name: "Inspect", icon: Search }]
+        ? [
+            { name: "Fetch", icon: GitBranch },
+            { name: "Read manifests", icon: Search },
+            { name: "Release metadata", icon: Box },
+          ]
         : [
             { name: "Snapshot", icon: GitBranch },
             { name: "Resolve", icon: Box },
             { name: "Inspect", icon: Search },
           ];
   const active =
-    stage === "queued" || stage === "cancelling" ? -1 : (group[stage] ?? -1);
+    mode === "scan"
+      ? // The scan request reports no stages; walk the steps by elapsed time
+        // and say so in the note below.
+        Math.min(2, Math.floor(elapsed / 4))
+      : stage === "queued" || stage === "cancelling"
+        ? -1
+        : (group[stage] ?? -1);
+  const fill = active < 0 ? 0 : active / Math.max(steps.length - 1, 1);
 
   return (
-    <div className="tm-activity" role="status" aria-live="polite">
+    <div
+      className={`tm-activity mode-${mode} ${stage === "cancelling" ? "is-cancelling" : ""}`}
+      role="status"
+      aria-live="polite"
+    >
       <div className="tm-activity-head">
-        <span className="tm-activity-live">In progress</span>
-        <strong>{labels[stage] || "Working"}</strong>
+        <span className="tm-activity-live">
+          <i className="live-dot" />
+          {stage === "cancelling" ? "Stopping" : "Live"}
+        </span>
+        <strong key={stage} className="tm-activity-label">
+          {labels[stage] || "Working"}
+        </strong>
+        <time className="tm-activity-clock" aria-label="Elapsed time">
+          {clock(elapsed)}
+        </time>
         {activity?.version && (
-          <span>
-            {activity.version}
-            {activity.index && activity.total
-              ? ` · ${activity.index} of ${activity.total}`
-              : ""}
+          <span className="tm-activity-version">
+            <code>{activity.version}</code>
+            {activity.index && activity.total ? (
+              <span className="tm-activity-count">
+                {activity.index} of {activity.total}
+                <i aria-hidden="true">
+                  <b
+                    style={{
+                      width: `${(100 * activity.index) / activity.total}%`,
+                    }}
+                  />
+                </i>
+              </span>
+            ) : null}
           </span>
         )}
       </div>
-      <div className="tm-activity-flow" aria-hidden="true">
+      <div
+        className="tm-activity-flow"
+        aria-hidden="true"
+        style={
+          {
+            "--fill": fill,
+            "--steps": steps.length,
+          } as CSSProperties
+        }
+      >
+        <span className="tm-activity-rail">
+          <i />
+        </span>
         {steps.map(({ name, icon: Icon }, index) => (
           <div
-            className={`tm-activity-step ${index === active ? "is-active" : ""}`}
+            className={`tm-activity-step ${index === active ? "is-active" : index < active ? "is-done" : ""}`}
             key={name}
           >
             <span className="tm-activity-node">
-              <Icon size={16} />
+              {index < active ? <Check size={15} /> : <Icon size={16} />}
             </span>
             <span>{name}</span>
           </div>
         ))}
       </div>
+      <div className="tm-activity-scan" aria-hidden="true">
+        <i />
+      </div>
+      {trail.length > 1 && (
+        <ol className="tm-activity-trail" aria-label="Stages seen so far">
+          {trail.map((item, index) => (
+            <li
+              key={`${item.stage}-${item.at}`}
+              className={index === trail.length - 1 ? "is-current" : ""}
+            >
+              <time>{clock(item.at)}</time>
+              {labels[item.stage] || item.stage.replaceAll("_", " ")}
+            </li>
+          ))}
+        </ol>
+      )}
       <p>
-        The highlighted step reflects the current operation, not an estimated
-        completion percentage.
+        {mode === "scan"
+          ? "Steps advance with elapsed time while the project is read; they are not a completion estimate."
+          : "The highlighted step reflects the current operation, not an estimated completion percentage."}
       </p>
     </div>
   );

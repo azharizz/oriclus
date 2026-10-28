@@ -1,5 +1,8 @@
+import { useEffect, useState, type CSSProperties } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { CheckCircle2, Gauge, Timer, Wrench } from "lucide-react";
 import { api } from "./api";
+import { Skeleton } from "./ui";
 import "./metrics.css";
 
 type Metrics = {
@@ -10,8 +13,39 @@ type Metrics = {
   test_outcomes: Record<string, number>;
   duration_bins: number[];
 };
-function percent(n: number, d: number) {
-  return d ? `${((100 * n) / d).toFixed(1)}%` : "No data";
+/** Eases a displayed number toward its value when data arrives. */
+function useCountUp(target: number) {
+  const [value, setValue] = useState(0);
+  useEffect(() => {
+    if (matchMedia("(prefers-reduced-motion: reduce)").matches)
+      return setValue(target);
+    const start = performance.now();
+    let frame = 0;
+    const tick = (now: number) => {
+      const t = Math.min(1, (now - start) / 900);
+      setValue(target * (1 - (1 - t) ** 3));
+      if (t < 1) frame = requestAnimationFrame(tick);
+    };
+    frame = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(frame);
+  }, [target]);
+  return value;
+}
+function Ring({ n, d }: { n: number; d: number }) {
+  const ratio = d ? n / d : 0;
+  const shown = useCountUp(100 * ratio);
+  return (
+    <div className="metric-ring" style={{ "--ratio": ratio } as CSSProperties}>
+      <svg viewBox="0 0 64 64" aria-hidden="true">
+        <circle cx="32" cy="32" r="27" />
+        <circle cx="32" cy="32" r="27" pathLength="100" />
+      </svg>
+      <strong>{d ? `${shown.toFixed(1)}%` : "No data"}</strong>
+    </div>
+  );
+}
+function Count({ value }: { value: number }) {
+  return <>{Math.round(useCountUp(value))}</>;
 }
 function Breakdown({
   label,
@@ -37,7 +71,9 @@ function Breakdown({
           <li key={item.name}>
             <i className={item.tone} aria-hidden="true" />
             <span>{item.name}</span>
-            <strong>{item.count}</strong>
+            <strong>
+              <Count value={item.count} />
+            </strong>
           </li>
         ))}
       </ul>
@@ -58,7 +94,11 @@ export default function Metrics() {
         <p>Understand the results recorded in this local workspace.</p>
       </header>
       {query.isPending ? (
-        <p role="status">Loading measurements…</p>
+        <div className="metrics-grid">
+          {[0, 1, 2, 3].map((i) => (
+            <Skeleton key={i} rows={3} label="Loading measurements" />
+          ))}
+        </div>
       ) : query.error ? (
         <p className="error" role="alert">
           {query.error.message}
@@ -74,12 +114,15 @@ export default function Metrics() {
                 <section className="metric-panel">
                   <div className="metric-head">
                     <div>
-                      <h2>Experiment completion</h2>
+                      <h2>
+                        <CheckCircle2 size={16} /> Experiment completion
+                      </h2>
                       <p>Runs that finished, regardless of test outcome</p>
                     </div>
-                    <strong>
-                      {percent(m.completion.completed, m.completion.terminal)}
-                    </strong>
+                    <Ring
+                      n={m.completion.completed}
+                      d={m.completion.terminal}
+                    />
                   </div>
                   <Breakdown
                     label="Terminal experiment statuses"
@@ -115,12 +158,12 @@ export default function Metrics() {
                 <section className="metric-panel">
                   <div className="metric-head">
                     <div>
-                      <h2>Repair verification</h2>
+                      <h2>
+                        <Wrench size={16} /> Repair verification
+                      </h2>
                       <p>Proposed patches checked in a fresh branch</p>
                     </div>
-                    <strong>
-                      {percent(m.repair.verified, m.repair.attempts)}
-                    </strong>
+                    <Ring n={m.repair.verified} d={m.repair.attempts} />
                   </div>
                   <Breakdown
                     label="Repair verification outcomes"
@@ -145,7 +188,9 @@ export default function Metrics() {
                 <section className="metric-panel">
                   <div className="metric-head">
                     <div>
-                      <h2>Candidate test outcomes</h2>
+                      <h2>
+                        <Gauge size={16} /> Candidate test outcomes
+                      </h2>
                       <p>Observed results, not resolver predictions</p>
                     </div>
                   </div>
@@ -176,10 +221,12 @@ export default function Metrics() {
                 <section className="metric-panel">
                   <div className="metric-head">
                     <div>
-                      <h2>Time to first useful result</h2>
+                      <h2>
+                        <Timer size={16} /> Time to first useful result
+                      </h2>
                       <p>From run creation to first pass or fail</p>
                     </div>
-                    <strong>
+                    <strong className="metric-big">
                       {m.first_result_seconds.median === null
                         ? "No data"
                         : `${m.first_result_seconds.median.toFixed(1)}s`}
@@ -191,12 +238,14 @@ export default function Metrics() {
                   >
                     {["Under 30s", "30–60s", "60–120s", "120s or more"].map(
                       (label, i) => (
-                        <div key={label}>
+                        <div key={label} style={{ "--i": i } as CSSProperties}>
                           <span>{label}</span>
                           <div className="metric-track" aria-hidden="true">
                             <i style={{ width: `${(100 * bins[i]) / max}%` }} />
                           </div>
-                          <strong>{bins[i]}</strong>
+                          <strong>
+                            <Count value={bins[i]} />
+                          </strong>
                         </div>
                       ),
                     )}

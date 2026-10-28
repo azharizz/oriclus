@@ -1,30 +1,61 @@
 .metrics-page {
   max-width: 1200px;
 }
-.metrics-page .page-heading p {
-  margin-top: 8px;
-  color: var(--muted);
-}
 .metrics-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 16px;
 }
 .metric-panel {
+  position: relative;
   border: 1px solid var(--line);
-  background: var(--surface);
-  border-radius: 12px;
+  background:
+    radial-gradient(
+      420px 160px at 100% 0%,
+      rgba(96, 87, 247, 0.08),
+      transparent 70%
+    ),
+    var(--surface);
+  border-radius: 16px;
   padding: 22px;
   min-width: 0;
+  box-shadow: var(--edge);
+  overflow: hidden;
+  animation: rise 640ms var(--ease) backwards;
+  transition:
+    transform 400ms var(--ease),
+    border-color 200ms,
+    box-shadow 300ms;
+}
+.metric-panel:nth-child(2) {
+  animation-delay: 80ms;
+}
+.metric-panel:nth-child(3) {
+  animation-delay: 160ms;
+}
+.metric-panel:nth-child(4) {
+  animation-delay: 240ms;
+}
+.metric-panel:hover {
+  transform: translateY(-2px);
+  border-color: #3d3d45;
+  box-shadow: var(--edge), var(--lift);
 }
 .metric-head {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
   gap: 18px;
+  min-height: 72px;
 }
 .metric-head h2 {
+  display: flex;
+  align-items: center;
+  gap: 9px;
   font-size: 15px;
+}
+.metric-head h2 svg {
+  color: var(--link);
 }
 .metric-head p,
 .metric-note {
@@ -35,25 +66,70 @@
 .metric-head p {
   margin-top: 5px;
 }
-.metric-head > strong {
+.metric-big {
   color: var(--ink);
-  font-size: 22px;
+  font-size: 28px;
+  font-weight: 650;
+  letter-spacing: -0.03em;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
+.metric-ring {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 84px;
+  height: 84px;
+  flex-shrink: 0;
+}
+.metric-ring svg {
+  position: absolute;
+  inset: 0;
+  transform: rotate(-90deg);
+}
+.metric-ring circle {
+  fill: none;
+  stroke: #2c2c33;
+  stroke-width: 6;
+}
+.metric-ring circle + circle {
+  stroke: var(--green);
+  stroke-linecap: round;
+  stroke-dasharray: calc(var(--ratio) * 100) 100;
+  filter: drop-shadow(0 0 4px rgba(183, 236, 170, 0.5));
+  animation: ring 1100ms var(--ease) backwards 200ms;
+}
+@keyframes ring {
+  from {
+    stroke-dasharray: 0 100;
+  }
+}
+.metric-ring strong {
+  font-size: 14px;
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+}
 .metric-breakdown,
 .metric-histogram {
-  margin-top: 24px;
+  margin-top: 20px;
 }
 .metric-bar {
   display: flex;
-  height: 9px;
-  background: #34343d;
-  border-radius: 5px;
+  gap: 2px;
+  height: 10px;
+  background: #2c2c33;
+  border-radius: 6px;
   overflow: hidden;
+  animation: reveal 1000ms var(--ease) backwards 250ms;
+}
+@keyframes reveal {
+  from {
+    clip-path: inset(0 100% 0 0);
+  }
 }
 .metric-bar span {
   min-width: 0;
+  transition: width 600ms var(--ease);
 }
 .metric-green {
   background: #a1db9e;
@@ -72,23 +148,31 @@
   padding: 0;
   margin: 16px 0 0;
   display: grid;
-  gap: 8px;
+  gap: 4px;
 }
 .metric-breakdown li {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 9px;
+  margin: 0;
+  padding: 5px 8px;
+  border-radius: 7px;
   color: var(--muted);
   font-size: 12px;
+  transition: background-color 200ms;
+}
+.metric-breakdown li:hover {
+  background: rgba(255, 255, 255, 0.03);
 }
 .metric-breakdown li i {
   width: 8px;
   height: 8px;
-  border-radius: 2px;
+  border-radius: 3px;
 }
 .metric-breakdown li strong {
   margin-left: auto;
   color: var(--ink);
+  font-variant-numeric: tabular-nums;
 }
 .metric-histogram {
   display: grid;
@@ -96,7 +180,7 @@
 }
 .metric-histogram > div {
   display: grid;
-  grid-template-columns: 100px 1fr 25px;
+  grid-template-columns: 100px 1fr 30px;
   align-items: center;
   gap: 10px;
   font-size: 12px;
@@ -105,32 +189,48 @@
 .metric-histogram strong {
   color: var(--ink);
   text-align: right;
+  font-variant-numeric: tabular-nums;
 }
 .metric-track {
   height: 8px;
-  background: #34343d;
+  background: #2c2c33;
   border-radius: 4px;
   overflow: hidden;
 }
 .metric-track i {
   display: block;
   height: 100%;
-  background: #aaa4ff;
+  border-radius: 4px;
+  background: linear-gradient(90deg, var(--accent), var(--link));
+  transform-origin: left;
+  animation: grow 900ms var(--ease) backwards;
+  animation-delay: calc(300ms + var(--i) * 90ms);
+}
+@keyframes grow {
+  from {
+    transform: scaleX(0);
+  }
 }
 .metric-note {
   margin-top: 18px;
+  padding-top: 12px;
+  border-top: 1px dashed var(--line);
 }
 .metrics-disclaimer {
-  color: var(--muted);
+  color: var(--faint);
   font-size: 12px;
   margin-top: 20px;
   max-width: 75ch;
+}
+.metrics-grid > .skeleton {
+  min-height: 220px;
 }
 @media (max-width: 760px) {
   .metrics-grid {
     grid-template-columns: 1fr;
   }
-  .metric-head > strong {
-    font-size: 19px;
+  .metric-ring {
+    width: 70px;
+    height: 70px;
   }
 }

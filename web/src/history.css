@@ -1,26 +1,22 @@
 .experiment-history {
-  max-width: 1100px;
-}
-.experiment-history .page-heading p {
-  margin-top: 8px;
-  color: var(--muted);
+  max-width: 1180px;
 }
 .experiment-row small {
   overflow-wrap: anywhere;
 }
-.experiment-status {
-  color: var(--muted);
-  text-transform: capitalize;
-}
 .history-note {
-  color: var(--muted);
+  color: var(--faint);
   font-size: 12px;
   margin-top: 18px;
 }
 .history-notice {
   color: var(--muted);
-  padding: 12px 14px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
+  padding: 12px 16px;
+  border: 1px solid #46426a;
+  border-radius: 10px;
+  background: #1f1d2e;
   margin: 0 0 20px;
+}
+.history-row > .status {
+  justify-self: start;
 }
