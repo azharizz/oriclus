@@ -17,10 +17,12 @@ import {
 } from "lucide-react";
 import { api } from "./api";
 import ActivityVisual, { type Activity } from "./ActivityVisual";
+import { Pager } from "./ui";
 import "./timeline.css";
 
 type Release = { version: string; date: string | null };
 const ROW_HEIGHT = 90;
+const ROWS_PER_PAGE = 20;
 const dependencyKey = (name: string, ecosystem?: string) =>
   ecosystem === "python" ? name.toLowerCase().replace(/[-_.]+/g, "-") : name;
 type Dependency = {
@@ -207,6 +209,7 @@ export default function Timeline({
   const [goalChoice, setGoalChoice] = useState("");
   const [allowDependencyRepair, setAllowDependencyRepair] = useState(true);
   const [showTransitive, setShowTransitive] = useState(true);
+  const [rowPage, setRowPage] = useState(0);
   const [zoom, setZoom] = useState(1);
   const [tip, setTip] = useState<{
     x: number;
@@ -233,6 +236,7 @@ export default function Timeline({
         );
         if (live) {
           setAnalysis(saved);
+          setRowPage(0);
           onAnalysis(saved.id);
           setSelection(null);
           setRunId(experiment.id);
@@ -259,6 +263,16 @@ export default function Timeline({
       .then((data) => {
         if (live) {
           setAnalysis(data);
+          setShowTransitive(true);
+          setRowPage(
+            Math.max(
+              0,
+              Math.floor(
+                data.packages.findIndex((pkg) => pkg.name === target.package) /
+                  ROWS_PER_PAGE,
+              ),
+            ),
+          );
           onAnalysis(data.id);
           setSelection({ name: target.package, version: target.version });
         }
@@ -404,7 +418,17 @@ export default function Timeline({
           timeZone: "UTC",
         }).format(new Date(Date.UTC(2024, month, 1)))
       : `Q${month / 3 + 1}`;
-  const visible = packages.filter((pkg) => pkg.direct || showTransitive);
+  const filteredPackages = packages.filter(
+    (pkg) => pkg.direct || showTransitive,
+  );
+  const activeRowPage = Math.min(
+    rowPage,
+    Math.max(0, Math.ceil(filteredPackages.length / ROWS_PER_PAGE) - 1),
+  );
+  const visible = filteredPackages.slice(
+    activeRowPage * ROWS_PER_PAGE,
+    (activeRowPage + 1) * ROWS_PER_PAGE,
+  );
   const resolvedVersions = new Map(
     Object.entries(resolution.data?.selected || {}).map(([name, version]) => [
       dependencyKey(name, analysis?.ecosystem),
@@ -488,6 +512,7 @@ export default function Timeline({
     setError("");
     setLoading(true);
     setAnalysis(null);
+    setRowPage(0);
     setSelection(null);
     setQueued([]);
     setGoalChoice("");
@@ -597,6 +622,7 @@ export default function Timeline({
         api<Experiment>(`/timeline/runs/${encodeURIComponent(item.id)}`),
       ]);
       setAnalysis(saved);
+      setRowPage(0);
       onAnalysis(saved.id);
       setSelection(null);
       setQueued([]);
@@ -706,9 +732,10 @@ export default function Timeline({
           </button>
         </div>
         <p className="tm-source-note">
-          Resolving or testing uploads project files to Nebius Sandboxes. Failed
-          test output and relevant source may be sent to Nemotron. Review your
-          files and command before continuing.
+          Resolving or testing sends local project files or fetches the recorded
+          public GitHub commit in Nebius Sandboxes. Failed test output and
+          relevant source may be sent to Nemotron. Review your files and command
+          before continuing.
         </p>
         {loading && (
           <ActivityVisual mode="scan" activity={{ stage: "scanning" }} />
@@ -816,7 +843,10 @@ export default function Timeline({
                 <input
                   type="checkbox"
                   checked={showTransitive}
-                  onChange={(event) => setShowTransitive(event.target.checked)}
+                  onChange={(event) => {
+                    setShowTransitive(event.target.checked);
+                    setRowPage(0);
+                  }}
                 />{" "}
                 Show related dependencies
               </label>
@@ -898,7 +928,7 @@ export default function Timeline({
                 >
                   <div className="tm-axis">
                     <div className="tm-axis-label">
-                      DEPENDENCY <span>{visible.length}</span>
+                      DEPENDENCY <span>{filteredPackages.length}</span>
                     </div>
                     <div
                       className="tm-axis-years"
@@ -1102,6 +1132,12 @@ export default function Timeline({
                   ))}
                 </div>
               </div>
+              <Pager
+                page={activeRowPage}
+                size={ROWS_PER_PAGE}
+                total={filteredPackages.length}
+                onChange={setRowPage}
+              />
               {!visible.length && (
                 <div className="tm-empty">
                   No dependencies were found in the supported project files.
@@ -1112,8 +1148,8 @@ export default function Timeline({
                 availability, not compatibility. Related rows come from
                 lockfiles, resolver results or registry declarations. Declared
                 relations can be optional and are not confirmed installed. Lines
-                connect resolver-selected releases with declared requirements;
-                they do not establish a passing test.
+                connect resolver-selected releases visible on the same page with
+                declared requirements; they do not establish a passing test.
               </p>
             </div>
             <aside className="tm-detail" aria-label="Selected release details">
@@ -1483,6 +1519,7 @@ export default function Timeline({
                       type="button"
                       className="primary tm-run"
                       disabled={
+                        analysis.manager === "bun" ||
                         !queued.length ||
                         combinationCount > 12 ||
                         !testCommand.trim() ||
@@ -1503,8 +1540,9 @@ export default function Timeline({
                       {submitting ? "Starting…" : "Run Sandbox tests"}
                     </button>
                     <p className="tm-limit">
-                      Runs code and may consume Nebius credits. Review the
-                      command before starting.
+                      {analysis.manager === "bun"
+                        ? "Sandbox experiments are not available for Bun projects yet."
+                        : "Runs code and may consume Nebius credits. Review the command before starting."}
                     </p>
                     {runError && (
                       <p role="alert" className="tm-run-error">

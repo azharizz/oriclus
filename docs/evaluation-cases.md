@@ -1,5 +1,17 @@
 # Reproducible evaluation cases
 
+## Public repositories and large-project exploration
+
+Metabase (`metabase/metabase`) at commit `32ae44fec4af0a4a87411daecb6a56aeb353b9b8` was explored by fetching root manifests only. Oriclus identified Bun, loaded the first 300 dependencies, and found 85,271 release records; registry metadata was unavailable for two displayed dependencies. Bun resolution and tests were correctly unavailable, and Clojure dependencies were not analyzed. This was a metadata exploration, not an execution of Metabase.
+
+A separate live Sandbox evaluation used the public Flask repository (`pallets/flask`) at commit `d086db856be187255b8ec61ef409357393020f32`. Oriclus fetched that exact commit in a Sandbox, resolved it with uv, and ran the same focused Flask test-client probe on the baseline and Werkzeug 3.1.8 and 3.1.9 candidates. All three probe runs passed; both candidates resolved. The probe below is an additional smoke check, not Flask's original test suite. Local run: `10a7a00e68d3407e9a0704602ac25761`.
+
+```sh
+python -c 'from flask import Flask; app=Flask(__name__); app.add_url_rule("/", view_func=lambda: "ok"); response=app.test_client().get("/"); assert response.status_code==200 and response.data==b"ok"'
+```
+
+The UI normally selects the repository's default branch at exploration time; reproduce the exact historical revision by checking it out locally, subject to local snapshot limits. These results are not a guarantee for other repositories or commits.
+
 ## Synthetic five-dependency matrix
 
 Analyze `examples/legacy-matrix`; add Flask 2.2.5 and 2.3.3, SQLAlchemy 1.4.54 and 2.0.29, Werkzeug 2.3.8, Jinja2 3.1.2, and MarkupSafe 2.1.5. Run `python -m unittest -v`. These selections form four combinations. In a real Nebius Sandbox run, baseline passed, all four combinations resolved with pip, and the unchanged Flask 2.2.5 / SQLAlchemy 1.4.54 combination passed. The three combinations containing Flask 2.3.3, SQLAlchemy 2.0.29, or both failed the original test. Nemotron proposed a source patch for each failing combination; each patch passed the original test in a fresh candidate branch. The original failures remain failures in the results.

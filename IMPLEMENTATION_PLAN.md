@@ -1,5 +1,11 @@
 # Dependency Time Machine implementation checklist
 
+## Large public repositories
+
+- [x] Explore public GitHub root manifests at a recorded commit without a full local snapshot; fetch that same commit in a Sandbox when a supported resolution or test begins.
+- [x] Identify Bun projects as exploration-only rather than using npm silently. Local project snapshot and compressed upload limits still apply; nested workspace selection and Clojure/Bun execution remain future work.
+- [x] Verify public GitHub preparation, resolution and a focused test in live Sandboxes, and document observed limits. Metabase was explored only; arbitrary-size repositories and full test suites are not established.
+
 ## Multi-dependency matrix follow-up
 
 - [x] Select releases across up to five dependencies and build at most 12 combinations.
