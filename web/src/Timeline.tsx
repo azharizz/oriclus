@@ -208,10 +208,12 @@ export default function Timeline({
   onAnalysis,
   target,
   initialRunId,
+  cloudMode = false,
 }: {
   onAnalysis: (id: string) => void;
   target: { id: string; package: string; version: string } | null;
   initialRunId?: string | null;
+  cloudMode?: boolean;
 }) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const timelineRef = useRef<HTMLDivElement>(null);
@@ -524,6 +526,7 @@ export default function Timeline({
     (count, versions) => count * versions.length,
     queued.length ? 1 : 0,
   );
+  const combinationLimit = cloudMode ? 4 : 12;
   const undated =
     selectedPackage?.releases.filter(
       (release) => dateValue(release.date) === null,
@@ -642,7 +645,7 @@ export default function Timeline({
       !analysis ||
       !selection ||
       !queued.length ||
-      combinationCount > 12 ||
+      combinationCount > combinationLimit ||
       !testCommand.trim()
     )
       return;
@@ -829,6 +832,7 @@ export default function Timeline({
                   name="tm-source"
                   value={value}
                   checked={source === value}
+                  disabled={cloudMode && value === "local"}
                   onChange={() => setSource(value)}
                 />
                 <Icon size={14} /> {text}
@@ -1909,9 +1913,9 @@ export default function Timeline({
                         )}
                         {!!queued.length && (
                           <p className="tm-limit" role="status">
-                            {combinationCount} combinations selected; maximum
-                            12.{" "}
-                            {combinationCount > 12 &&
+                            {combinationCount} combinations selected; maximum{" "}
+                            {combinationLimit}.{" "}
+                            {combinationCount > combinationLimit &&
                               "Remove releases to continue."}
                           </p>
                         )}
@@ -1982,7 +1986,7 @@ export default function Timeline({
                           className="primary tm-run"
                           disabled={
                             !queued.length ||
-                            combinationCount > 12 ||
+                            combinationCount > combinationLimit ||
                             !testCommand.trim() ||
                             submitting ||
                             !!(

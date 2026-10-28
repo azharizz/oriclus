@@ -29,12 +29,13 @@ jobs:
           npm ci
       - name: Backend boundaries and style
         run: |
-          uv run ruff check server tests scripts
-          uv run ruff format --check server tests scripts
+          uv run ruff check server tests scripts deploy
+          uv run ruff format --check server tests scripts deploy
           uv run python -m unittest discover -s tests -v
       - name: Frontend formatting and production build
         run: |
           npm run format:check
+          npm run test:frontend
           npm run build
       - name: Real Docker isolation and lifecycle
         run: |

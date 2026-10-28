@@ -160,6 +160,11 @@ async def health():
     return {**await readiness(), "active_run": store.active_run()}
 
 
+@app.get("/api/cloud-info")
+async def cloud_info():
+    return {"enabled": False}
+
+
 @app.get("/api/example")
 async def example():
     return json.loads((ROOT / "examples/httpx-starlette.json").read_text())

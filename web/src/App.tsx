@@ -101,12 +101,29 @@ export default function App() {
   const [indicator, setIndicator] = useState<{ top: number; height: number }>();
   const navRef = useCallback(
     (node: HTMLElement | null) => {
-      const active = node?.querySelector<HTMLElement>('[aria-current="page"]');
-      setIndicator(
-        active
+      if (!node) return;
+      const updateIndicator = () => {
+        const active = node.querySelector<HTMLElement>('[aria-current="page"]');
+        const next = active
           ? { top: active.offsetTop, height: active.offsetHeight }
-          : undefined,
-      );
+          : undefined;
+        setIndicator((previous) => {
+          if (!next) return undefined;
+          return previous?.top === next.top && previous.height === next.height
+            ? previous
+            : next;
+        });
+      };
+      if (typeof ResizeObserver === "undefined") {
+        updateIndicator();
+        return;
+      }
+      const observer = new ResizeObserver(updateIndicator);
+      observer.observe(node);
+      node
+        .querySelectorAll(".nav-heading, button")
+        .forEach((item) => observer.observe(item));
+      return () => observer.disconnect();
     },
     [page, sidebarOpen],
   );
@@ -114,6 +131,15 @@ export default function App() {
     queryKey: ["health"],
     queryFn: () => api<Health>("/health"),
     refetchInterval: 5000,
+  });
+  const cloud = useQuery({
+    queryKey: ["cloud-info"],
+    queryFn: () =>
+      api<{ enabled: boolean; remaining?: number; limit?: number }>(
+        "/cloud-info",
+      ),
+    refetchInterval: 10000,
+    retry: false,
   });
   const selectedRun = useQuery({
     queryKey: ["timeline-run", timelineRunId],
@@ -329,6 +355,18 @@ export default function App() {
           </a>
         </header>
         <main id="main" tabIndex={-1}>
+          {cloud.data?.enabled && (
+            <p className="history-notice" role="status">
+              Public hosted demo · {cloud.data.remaining} of {cloud.data.limit}{" "}
+              shared operations remaining. Analyses, resolutions, experiments
+              and research each count; page visits and progress checks do not.
+              Attempts that pass the hosted input limits count even when they
+              fail. Public GitHub projects only; saved evidence is private to
+              this browser session. Hosted experiments allow four combinations,
+              news refreshes five libraries, and agent repairs up to six model
+              turns to limit costs.
+            </p>
+          )}
           {health.error && (
             <p className="error error-offline" role="alert">
               Cannot reach Oriclus. Check that the local server is running.
@@ -401,15 +439,14 @@ export default function App() {
                 <details className="disclosure">
                   <summary>Environment details</summary>
                   <p>
-                    Keys stay in the project’s .env. Restart the server after
-                    changing them. Version resolution sends project files to
-                    Nebius and runs package-manager commands; tests run after
-                    you start an experiment.
+                    {cloud.data?.enabled
+                      ? "Service credentials are managed by the host. Public GitHub project files are fetched in Nebius Sandboxes; test output may be sent to the model, and research sends dependency names to Tavily."
+                      : "Keys stay in the project’s .env. Restart the server after changing them. Version resolution sends project files to Nebius and runs package-manager commands; tests run after you start an experiment."}
                   </p>
                   <p>
-                    Keep this local execution service on localhost and use
-                    repositories you trust. Older Docker records remain stored
-                    locally.
+                    {cloud.data?.enabled
+                      ? "Saved analyses and experiment evidence are stored in this browser’s private hosted session. Clearing its cookie makes that session inaccessible from this browser."
+                      : "Keep this local execution service on localhost and use repositories you trust. Older Docker records remain stored locally."}
                   </p>
                 </details>
               </>
@@ -426,6 +463,7 @@ export default function App() {
                 onAnalysis={setAnalysisId}
                 target={timelineTarget}
                 initialRunId={timelineRunId}
+                cloudMode={cloud.data?.enabled === true}
               />
             )}
           </div>

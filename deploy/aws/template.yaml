@@ -1,0 +1,172 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Oriclus public demo with private session storage and a shared lifetime quota
+Parameters:
+  DeploymentId:
+    Type: String
+    AllowedPattern: '[a-z0-9]{8}'
+  BucketName:
+    Type: String
+  CodeKey:
+    Type: String
+  SecretName:
+    Type: String
+Resources:
+  QuotaTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: id
+          AttributeType: S
+      KeySchema:
+        - AttributeName: id
+          KeyType: HASH
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: false
+  DeadLetterQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      VisibilityTimeout: 5400
+      MessageRetentionPeriod: 345600
+  WorkQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      VisibilityTimeout: 5400
+      MessageRetentionPeriod: 86400
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt DeadLetterQueue.Arn
+        maxReceiveCount: 1
+  ExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: OriclusRuntime
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: s3:ListBucket
+                Resource: !Sub 'arn:aws:s3:::${BucketName}'
+              - Effect: Allow
+                Action: [s3:GetObject, s3:PutObject, s3:DeleteObject]
+                Resource: !Sub 'arn:aws:s3:::${BucketName}/sessions/*'
+              - Effect: Allow
+                Action: [dynamodb:GetItem, dynamodb:UpdateItem, dynamodb:PutItem, dynamodb:DeleteItem]
+                Resource: !GetAtt QuotaTable.Arn
+              - Effect: Allow
+                Action: ssm:GetParameter
+                Resource: !Sub 'arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter${SecretName}'
+              - Effect: Allow
+                Action: [sqs:SendMessage, sqs:ReceiveMessage, sqs:DeleteMessage, sqs:GetQueueAttributes]
+                Resource:
+                  - !GetAtt WorkQueue.Arn
+                  - !GetAtt DeadLetterQueue.Arn
+  ApiLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/aws/lambda/oriclus-${DeploymentId}-api'
+      RetentionInDays: 7
+  WorkerLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/aws/lambda/oriclus-${DeploymentId}-worker'
+      RetentionInDays: 7
+  ApiFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub 'oriclus-${DeploymentId}-api'
+      Runtime: python3.12
+      Architectures: [x86_64]
+      Handler: deploy.aws.runtime.handler
+      Role: !GetAtt ExecutionRole.Arn
+      Timeout: 900
+      MemorySize: 1024
+      EphemeralStorage:
+        Size: 512
+      Code:
+        S3Bucket: !Ref BucketName
+        S3Key: !Ref CodeKey
+      Environment:
+        Variables:
+          ORICLUS_SECRET_PARAMETER: !Ref SecretName
+          ORICLUS_BUCKET: !Ref BucketName
+          ORICLUS_QUOTA_TABLE: !Ref QuotaTable
+          ORICLUS_QUEUE: !Ref WorkQueue
+          ORICLUS_DLQ_ARN: !GetAtt DeadLetterQueue.Arn
+  WorkerFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub 'oriclus-${DeploymentId}-worker'
+      Runtime: python3.12
+      Architectures: [x86_64]
+      Handler: deploy.aws.runtime.handler
+      Role: !GetAtt ExecutionRole.Arn
+      Timeout: 900
+      MemorySize: 1024
+      EphemeralStorage:
+        Size: 512
+      Code:
+        S3Bucket: !Ref BucketName
+        S3Key: !Ref CodeKey
+      Environment:
+        Variables:
+          ORICLUS_SECRET_PARAMETER: !Ref SecretName
+          ORICLUS_BUCKET: !Ref BucketName
+          ORICLUS_QUOTA_TABLE: !Ref QuotaTable
+          ORICLUS_QUEUE: !Ref WorkQueue
+          ORICLUS_DLQ_ARN: !GetAtt DeadLetterQueue.Arn
+  QueueMapping:
+    Type: AWS::Lambda::EventSourceMapping
+    Properties:
+      EventSourceArn: !GetAtt WorkQueue.Arn
+      FunctionName: !GetAtt WorkerFunction.Arn
+      BatchSize: 1
+      ScalingConfig:
+        MaximumConcurrency: 2
+  FailureMapping:
+    Type: AWS::Lambda::EventSourceMapping
+    Properties:
+      EventSourceArn: !GetAtt DeadLetterQueue.Arn
+      FunctionName: !GetAtt WorkerFunction.Arn
+      BatchSize: 1
+      ScalingConfig:
+        MaximumConcurrency: 2
+  FunctionUrl:
+    Type: AWS::Lambda::Url
+    Properties:
+      AuthType: NONE
+      TargetFunctionArn: !Ref ApiFunction
+  UrlPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref ApiFunction
+      Action: lambda:InvokeFunctionUrl
+      Principal: '*'
+      FunctionUrlAuthType: NONE
+  InvokePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref ApiFunction
+      Action: lambda:InvokeFunction
+      Principal: '*'
+      InvokedViaFunctionUrl: true
+Outputs:
+  WebsiteUrl:
+    Value: !GetAtt FunctionUrl.FunctionUrl
+  QuotaTable:
+    Value: !Ref QuotaTable
+  QueueUrl:
+    Value: !Ref WorkQueue
+  ApiFunction:
+    Value: !Ref ApiFunction
+  WorkerFunction:
+    Value: !Ref WorkerFunction

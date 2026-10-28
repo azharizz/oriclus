@@ -1,6 +1,7 @@
 """Local configuration and the user-facing rehearsal contract."""
 
 import hashlib
+import os
 import re
 from pathlib import Path
 
@@ -9,6 +10,8 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 ROOT = Path(__file__).resolve().parent.parent
 ENV = dotenv_values(ROOT / ".env")
+if os.environ.get("ORICLUS_AWS") == "1":
+    ENV.update(os.environ)
 DATA = ROOT / ".oriclus"
 WORKSPACE = hashlib.sha256(str(ROOT).encode()).hexdigest()[:12]
 IMAGE = ENV.get("SANDBOX_IMAGE") or "oriclus-python:local"

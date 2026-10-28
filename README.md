@@ -126,6 +126,23 @@ Dependency installation and resolution require network access and may execute pr
 
 `.oriclus/` contains local analyses, runs, history and artifacts and is excluded from Git. The retired Docker rehearsal interface is no longer shown; its saved records remain available through `GET /api/runs` and `GET /api/runs/{run_id}` on the local service. Old `?run=...` links redirect to Time Machine History. Its original history and verification are preserved in [docs/legacy-rehearsal.md](docs/legacy-rehearsal.md).
 
+## AWS hosted demo
+
+The optional public demo uses an AWS Lambda function URL for the app, an SQS-backed Lambda worker for background jobs, private S3 storage for per-browser checkpoints, DynamoDB for the shared lifetime operation counter, and an encrypted Systems Manager parameter for the host's Nebius and Tavily credentials. These services are usage based but are **not guaranteed to be free**. Nebius and Tavily usage is billed separately. The public endpoint has no sign-in: anyone can consume the deployment's shared quota.
+
+The lifetime quota is **250 shared operations** across all visitors and persists in DynamoDB across deployments. Starting an analysis, resolution, experiment, release research or feed refresh consumes one operation, including failures after hosted input validation. Page views and progress polling do not consume the operation counter but can incur AWS request costs. Hosted experiments allow at most four combinations; feed refresh requires filtering to at most five libraries; model repair is limited to six turns. A single operation can still make multiple Sandbox, model or Tavily calls, so the counter is **not a monetary spending limit**.
+
+The hosted service accepts only public GitHub projects. Browser sessions receive a signed, HTTP-only cookie, and saved data is separated by session. Clearing the cookie loses access to that browser's hosted history; anyone with a copied session cookie can access that session. Do not use the public demo for sensitive projects. Local directories and local history stay on your computer and are not uploaded during deployment. Workers are limited to two concurrent jobs and 15 minutes each; longer jobs stop with partial evidence. The AWS account's Lambda concurrency quota is shared with its other functions.
+
+Deploy using your own AWS account and locally configured `.env`:
+
+```sh
+uv sync --frozen
+uv run python deploy/aws/deploy.py --profile YOUR_AWS_PROFILE --region us-east-1
+```
+
+The script creates uniquely named AWS resources and records their identifiers in `.oriclus/aws-deployment.json`; it does not print or commit credentials. Redeployment keeps the session key and quota table. To stop ongoing costs, delete the deployment's CloudFormation stack, then separately delete its S3 bucket and encrypted Systems Manager parameter if you no longer need the saved history. Deleting only the Lambda function does **not** delete the S3 data, queue, quota table, logs, or parameter. Check the saved resource identifiers before deleting anything.
+
 ## Development
 
 ```sh
