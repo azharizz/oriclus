@@ -1,5 +1,7 @@
 # Oriclus
 
+Historical record: the Docker rehearsal interface described below has been retired. Its data remains stored locally and accessible through the legacy API; old run links now open Time Machine History.
+
 Trace upstream changes through real downstream tests and model-authored repairs.
 
 Current iteration, 2026-09-20: the desktop interface now follows Nebius Token Factory's visual system. The production frontend is built and served on port 8787. Backend checks and desktop interaction checks pass. **Automatic discovery is not yet reliable:** four live attempts with the configured model failed to produce a supported setup within the turn budget. Manual setup, import and reuse remain available. See the current verification record below for the scope of these checks.

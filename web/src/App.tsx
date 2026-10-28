@@ -1,7 +1,6 @@
-import { useDeferredValue, useState, useSyncExternalStore } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
-  ArrowRight,
   BookOpen,
   ExternalLink,
   History as HistoryIcon,
@@ -16,16 +15,7 @@ import News from "./News";
 import Metrics from "./Metrics";
 import ExperimentHistory from "./ExperimentHistory";
 import Timeline from "./Timeline";
-import RunView from "./RunView";
-import { Pager, Status } from "./ui";
-import {
-  api,
-  repo,
-  shortRef,
-  type Health,
-  type Page,
-  type RunSummary,
-} from "./api";
+import { api, type Health } from "./api";
 
 const subscribeLocation = (changed: () => void) => {
   window.addEventListener("popstate", changed);
@@ -33,145 +23,13 @@ const subscribeLocation = (changed: () => void) => {
 };
 const locationSnapshot = () => window.location.search;
 
-function LegacyHistory({
-  onOpen,
-  onNew,
-}: {
-  onOpen: (id: string) => void;
-  onNew: () => void;
-}) {
-  const [page, setPage] = useState(0);
-  const [search, setSearch] = useState("");
-  const [status, setStatus] = useState("");
-  const queryText = useDeferredValue(search);
-  const history = useQuery({
-    queryKey: ["runs", page, queryText, status],
-    queryFn: () =>
-      api<Page<RunSummary>>(
-        `/runs?limit=10&offset=${page * 10}&q=${encodeURIComponent(queryText)}&status=${status}`,
-      ),
-    refetchInterval: 5000,
-  });
-  return (
-    <>
-      <header className="page-heading inline">
-        <h1>Historical Docker checks</h1>
-        <button className="primary" onClick={onNew}>
-          Open time machine
-        </button>
-      </header>
-      <div className="filters">
-        <input
-          type="search"
-          aria-label="Search checks"
-          maxLength={120}
-          placeholder="Search by repository or name"
-          value={search}
-          onChange={(e) => {
-            setSearch(e.target.value);
-            setPage(0);
-          }}
-        />
-        <select
-          aria-label="Filter checks"
-          value={status}
-          onChange={(e) => {
-            setStatus(e.target.value);
-            setPage(0);
-          }}
-        >
-          <option value="">All statuses</option>
-          <option value="ready">Ready to start</option>
-          <option value="planning">Finding a setup</option>
-          <option value="running">Running</option>
-          <option value="completed">Finished</option>
-          <option value="failed">Failed</option>
-          <option value="cancelled">Cancelled</option>
-          <option value="interrupted">Interrupted</option>
-        </select>
-      </div>
-      {history.isPending ? (
-        <p className="empty" role="status">
-          Loading checks…
-        </p>
-      ) : history.error ? (
-        <div className="error" role="alert">
-          {history.error.message}
-          <button onClick={() => history.refetch()}>Retry</button>
-        </div>
-      ) : (
-        <>
-          {history.data.items.length ? (
-            <div className="history-list">
-              {history.data.items.map((run) => (
-                <button
-                  className="history-row"
-                  key={run.id}
-                  onClick={() => onOpen(run.id)}
-                >
-                  <div>
-                    <strong>{run.request.title}</strong>
-                    <small>
-                      {repo(run.request.upstream)}
-                      {run.request.baseline_ref && run.request.candidate_ref
-                        ? ` · ${shortRef(run.request.baseline_ref)} → ${shortRef(run.request.candidate_ref)}`
-                        : ""}
-                      {run.consumer_count > 0
-                        ? ` · ${run.consumer_count} projects`
-                        : ""}
-                    </small>
-                  </div>
-                  <Status value={run.status} />
-                  <time dateTime={run.created_at}>
-                    {new Date(run.created_at).toLocaleDateString()}
-                    <span>
-                      {new Date(run.created_at).toLocaleTimeString([], {
-                        hour: "2-digit",
-                        minute: "2-digit",
-                      })}
-                    </span>
-                  </time>
-                  <ArrowRight size={16} />
-                </button>
-              ))}
-            </div>
-          ) : (
-            <div className="empty">
-              <h2>
-                {search || status ? "No matching checks" : "No checks yet"}
-              </h2>
-              <p>
-                {search || status
-                  ? "Change your search or filter."
-                  : "Start with a repository to see what its changes affect."}
-              </p>
-              {!search && !status && (
-                <button className="primary" onClick={onNew}>
-                  Open time machine
-                </button>
-              )}
-            </div>
-          )}
-          <Pager
-            page={page}
-            size={10}
-            total={history.data.total}
-            onChange={setPage}
-            busy={history.isFetching}
-          />
-        </>
-      )}
-    </>
-  );
-}
-
 export default function App() {
   const [sidebarOpen, setSidebarOpen] = useState(() => window.innerWidth > 600);
   const search = useSyncExternalStore(subscribeLocation, locationSnapshot);
   const params = new URLSearchParams(search);
-  const runId = params.get("run");
+  const legacyRun = params.has("run");
   const timelineRunId = params.get("timeline_run");
-  const page = params.get("page") || "timeline";
+  const page = legacyRun ? "history" : params.get("page") || "timeline";
   const [analysisId, setAnalysisId] = useState<string | null>(null);
   const [timelineTarget, setTimelineTarget] = useState<{
     id: string;
@@ -183,13 +41,22 @@ export default function App() {
     queryFn: () => api<Health>("/health"),
     refetchInterval: 5000,
   });
+  useEffect(() => {
+    if (legacyRun) {
+      window.history.replaceState(
+        null,
+        "",
+        `${window.location.pathname}?page=history&legacy=1`,
+      );
+      window.dispatchEvent(new PopStateEvent("popstate"));
+    }
+  }, [legacyRun]);
   const navigate = (query: string) => {
     window.history.pushState(null, "", window.location.pathname + query);
     window.dispatchEvent(new PopStateEvent("popstate"));
     window.scrollTo({ top: 0 });
   };
   const newCheck = () => navigate("");
-  const open = (id: string) => navigate(`?run=${encodeURIComponent(id)}`);
   const openTimeline = (id: string, pkg: string, version: string) => {
     setTimelineTarget({ id, package: pkg, version });
     navigate("");
@@ -245,26 +112,26 @@ export default function App() {
         <nav aria-label="Main navigation">
           <p className="nav-heading">Workspace</p>
           <button
-            aria-current={!runId && page === "timeline" ? "page" : undefined}
+            aria-current={page === "timeline" ? "page" : undefined}
             onClick={() => navigate("")}
           >
             <CalendarDays size={17} />
             Time machine
           </button>
           <button
-            aria-current={!runId && page === "news" ? "page" : undefined}
+            aria-current={page === "news" ? "page" : undefined}
             onClick={() => navigate("?page=news")}
           >
             <Newspaper size={17} /> What’s new
           </button>
           <button
-            aria-current={!runId && page === "metrics" ? "page" : undefined}
+            aria-current={page === "metrics" ? "page" : undefined}
             onClick={() => navigate("?page=metrics")}
           >
             <BarChart3 size={17} /> Metrics
           </button>
           <button
-            aria-current={runId || page === "history" ? "page" : undefined}
+            aria-current={page === "history" ? "page" : undefined}
             onClick={() => navigate("?page=history")}
           >
             <HistoryIcon size={17} />
@@ -292,15 +159,12 @@ export default function App() {
             <button onClick={() => health.refetch()}>Retry</button>
           </p>
         )}
-        {runId ? (
-          <RunView key={runId} id={runId} />
-        ) : page === "history" ? (
+        {page === "history" ? (
           <ExperimentHistory
             onOpen={(id) => navigate(`?timeline_run=${encodeURIComponent(id)}`)}
             onNew={newCheck}
-          >
-            <LegacyHistory onOpen={open} onNew={newCheck} />
-          </ExperimentHistory>
+            legacyRedirect={legacyRun || params.get("legacy") === "1"}
+          />
         ) : page === "settings" ? (
           <>
             <header className="page-heading">
@@ -349,8 +213,8 @@ export default function App() {
               </p>
               <p>
                 Keep this local execution service on localhost and use
-                repositories you trust. Historical Docker records remain
-                accessible in History.
+                repositories you trust. Older Docker records remain stored
+                locally.
               </p>
             </details>
           </>

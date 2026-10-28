@@ -14,7 +14,7 @@
 ## Workspace follow-up
 
 - [x] Show resolver-selected declared connections on the shared release timeline, with an accessible list and no claim of tested compatibility.
-- [x] Put Time Machine experiments in History; keep Docker records accessible separately.
+- [x] Put Time Machine experiments in History; preserve Docker records in the legacy API without showing the retired interface.
 - [x] Visualize measured experiment, candidate, repair and timing distributions in Metrics.
 - [x] Verify the new screens in the browser and run live dependency-repair checks across available package managers. For uv, Poetry, npm, Yarn and pnpm the proposed changes were controlled inputs, not live model results; pip also received live Nemotron proposals.
 

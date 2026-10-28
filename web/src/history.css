@@ -17,15 +17,10 @@
   font-size: 12px;
   margin-top: 18px;
 }
-.legacy-history {
-  margin-top: 32px;
-  border-top: 1px solid var(--line);
-  padding-top: 20px;
-}
-.legacy-history > summary {
+.history-notice {
   color: var(--muted);
-  cursor: pointer;
-}
-.legacy-history > header {
-  margin-top: 24px;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  margin: 0 0 20px;
 }

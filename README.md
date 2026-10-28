@@ -4,7 +4,7 @@ Explore dependency release histories, resolve candidate upgrades, and test them 
 
 ## Get started
 
-Requirements: Python 3.12+, [uv](https://docs.astral.sh/uv/), Node.js 22.12+, npm, and access to Nebius Token Factory Sandboxes. Existing Docker history remains available as read-only records.
+Requirements: Python 3.12+, [uv](https://docs.astral.sh/uv/), Node.js 22.12+, npm, and access to Nebius Token Factory Sandboxes. Existing Docker history remains stored locally and available through the legacy API.
 
 ```sh
 uv sync --frozen
@@ -66,7 +66,7 @@ Oriclus creates a local snapshot in `.oriclus/timeline/`, excluding `.env*`, com
 
 Dependency installation and resolution require network access and may execute project or package code. Tests, model tool operations and patch verification explicitly request no Sandbox network access. No model or Sandbox API credentials are passed to guest commands. Nebius controls image, upload, operation and log retention; a disposable operation does not guarantee that every service record is deleted. See [Sandbox security and data handling](https://docs.tokenfactory.nebius.com/sandboxes/operate/security-and-data-handling). Use trusted inputs and review commands and patches.
 
-`.oriclus/` contains local analyses, runs, history and artifacts and is excluded from Git. Previous Docker rehearsal history remains readable from History; new experiments use Time Machine. Its original history and verification are preserved in [docs/legacy-rehearsal.md](docs/legacy-rehearsal.md).
+`.oriclus/` contains local analyses, runs, history and artifacts and is excluded from Git. The retired Docker rehearsal interface is no longer shown; its saved records remain available through `GET /api/runs` and `GET /api/runs/{run_id}` on the local service. Old `?run=...` links redirect to Time Machine History. Its original history and verification are preserved in [docs/legacy-rehearsal.md](docs/legacy-rehearsal.md).
 
 ## Development
 

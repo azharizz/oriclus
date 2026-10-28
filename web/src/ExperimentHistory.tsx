@@ -1,4 +1,4 @@
-import { useDeferredValue, useState, type ReactNode } from "react";
+import { useDeferredValue, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { ArrowRight } from "lucide-react";
 import { api } from "./api";
@@ -20,11 +20,11 @@ type Experiment = {
 export default function ExperimentHistory({
   onOpen,
   onNew,
-  children,
+  legacyRedirect,
 }: {
   onOpen: (id: string) => void;
   onNew: () => void;
-  children: ReactNode;
+  legacyRedirect: boolean;
 }) {
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState("");
@@ -61,6 +61,13 @@ export default function ExperimentHistory({
           Open time machine
         </button>
       </header>
+      {legacyRedirect && (
+        <p className="history-notice" role="status">
+          This link opened an older Docker rehearsal. That page has been
+          retired; its records remain stored locally. Below are your Time
+          Machine experiments.
+        </p>
+      )}
       <div className="filters">
         <input
           type="search"
@@ -149,10 +156,6 @@ export default function ExperimentHistory({
         Showing up to the 100 most recent local experiments. Results apply to
         their recorded tests and environment.
       </p>
-      <details className="legacy-history">
-        <summary>Historical Docker checks</summary>
-        {children}
-      </details>
     </section>
   );
 }
