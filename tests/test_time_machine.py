@@ -9,6 +9,14 @@ from server.config import BoundaryError
 
 
 class SnapshotTests(unittest.TestCase):
+    def test_subdirectory_rejects_parent_and_excluded_paths(self):
+        self.assertEqual(
+            time_machine.project_subdirectory("packages/frontend"), "packages/frontend"
+        )
+        for path in ("../outside", "/absolute", "src/../other", ".git/config"):
+            with self.subTest(path=path), self.assertRaises(BoundaryError):
+                time_machine.project_subdirectory(path)
+
     def test_snapshot_excludes_credentials_and_symlinks(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -85,24 +93,129 @@ class SnapshotTests(unittest.TestCase):
             path = Path(tmp)
             (path / "package.json").write_text('{"dependencies":{"demo":"^1"}}')
             (path / "bun.lock").write_text("")
+            (path / "package-lock.json").write_text(
+                json.dumps({"packages": {"node_modules/demo": {"version": "9.0.0"}}})
+            )
             manager, packages, warnings = time_machine._node_dependencies(path)
             self.assertEqual(manager, "bun")
             self.assertEqual(packages[0]["name"], "demo")
-            self.assertTrue(any("not supported" in warning for warning in warnings))
-            with self.assertRaisesRegex(BoundaryError, "not available"):
-                time_machine.candidate_script(
-                    {
-                        "manager": manager,
-                        "packages": [
-                            {**packages[0], "releases": [{"version": "1.0.0"}]}
-                        ],
-                    },
-                    "demo",
-                    "1.0.0",
-                )
+            self.assertIsNone(packages[0]["current"])
+            script, ecosystem = time_machine.candidate_script(
+                {
+                    "manager": manager,
+                    "packages": [{**packages[0], "releases": [{"version": "1.0.0"}]}],
+                },
+                "demo",
+                "1.0.0",
+            )
+            self.assertEqual(ecosystem, "bun")
+            self.assertIn("bun install", script)
+            self.assertTrue(any("native resolution" in warning for warning in warnings))
+
+    def test_go_only_reads_require_directives(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp)
+            (path / "go.mod").write_text(
+                "module example.com/app\nrequire (\n example.com/a v1.0.0\n"
+                " example.com/b v1.1.0 // indirect\n)\nreplace (\n"
+                " example.com/other v2.0.0 => example.com/fork v2.0.0\n)\n"
+                "require example.com/c v1.2.0\n"
+            )
+            manager, packages, _ = time_machine._experimental_dependencies(path, "go")
+            self.assertEqual(manager, "go")
+            self.assertEqual(
+                [p["name"] for p in packages],
+                ["example.com/a", "example.com/b", "example.com/c"],
+            )
+            self.assertFalse(packages[1]["direct"])
+
+    def test_cargo_uses_unambiguous_lock_versions(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp)
+            (path / "Cargo.toml").write_text(
+                '[dependencies]\nserde="1"\nlocal={path="../local"}\n'
+            )
+            (path / "Cargo.lock").write_text(
+                '[[package]]\nname="serde"\nversion="1.0.0"\n'
+            )
+            manager, packages, warnings = time_machine._experimental_dependencies(
+                path, "rust"
+            )
+            self.assertEqual(manager, "cargo")
+            self.assertEqual(
+                [(p["name"], p["current"]) for p in packages], [("serde", "1.0.0")]
+            )
+            self.assertTrue(any("local" in warning for warning in warnings))
 
 
 class AnalyzeTests(unittest.IsolatedAsyncioTestCase):
+    async def test_github_nested_directory_uses_revision_and_ignores_symlinks(self):
+        import httpx
+
+        revision, root_tree, sub_tree = "a" * 40, "b" * 40, "c" * 40
+        requested = []
+
+        def respond(request):
+            requested.append(str(request.url))
+            if request.url.path.endswith("/commits/HEAD"):
+                return httpx.Response(
+                    200, json={"sha": revision, "commit": {"tree": {"sha": root_tree}}}
+                )
+            if request.url.path.endswith(root_tree):
+                return httpx.Response(
+                    200,
+                    json={"tree": [{"path": "app", "type": "tree", "sha": sub_tree}]},
+                )
+            if request.url.path.endswith(sub_tree):
+                return httpx.Response(
+                    200,
+                    json={
+                        "tree": [
+                            {"path": "package.json", "type": "blob", "mode": "100644"},
+                            {"path": "go.mod", "type": "blob", "mode": "120000"},
+                        ]
+                    },
+                )
+            return httpx.Response(200, text='{"dependencies":{"demo":"^1"}}')
+
+        client = httpx.AsyncClient(transport=httpx.MockTransport(respond))
+        with (
+            tempfile.TemporaryDirectory() as tmp,
+            patch.object(time_machine.httpx, "AsyncClient", return_value=client),
+        ):
+            destination = Path(tmp) / "source"
+            await time_machine._github_manifests(
+                "https://github.com/example/demo", destination, "app"
+            )
+            self.assertEqual([p.name for p in destination.iterdir()], ["package.json"])
+            self.assertTrue(requested[-1].endswith(f"/{revision}/app/package.json"))
+
+    async def test_local_subdirectory_is_isolated_from_siblings(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            project = root / "repo" / "packages" / "app"
+            project.mkdir(parents=True)
+            (project / "package.json").write_text('{"dependencies":{"demo":"^1"}}')
+            (root / "repo" / "secret.txt").write_text("outside scope")
+
+            async def releases(_client, _package, _ecosystem, _limiter):
+                pass
+
+            with (
+                patch.object(time_machine, "TIMELINES", root / "history"),
+                patch.object(time_machine, "_releases", releases),
+            ):
+                result = await time_machine.analyze(
+                    "local", str(root / "repo"), "packages/app"
+                )
+                saved = time_machine.snapshot_path(result["id"])
+                self.assertEqual(result["source_subdirectory"], "packages/app")
+                self.assertTrue((saved / "package.json").exists())
+                self.assertFalse((saved / "secret.txt").exists())
+                self.assertTrue(
+                    any("Parent workspace" in warning for warning in result["warnings"])
+                )
+
     async def test_github_fetches_only_regular_manifest_files_at_recorded_revision(
         self,
     ):
@@ -219,7 +332,7 @@ class AnalyzeTests(unittest.IsolatedAsyncioTestCase):
             async def releases(_client, _package, _ecosystem, _limiter):
                 pass
 
-            async def manifests(_url, destination):
+            async def manifests(_url, destination, _directory):
                 destination.mkdir()
                 (destination / "package.json").write_bytes(
                     subprocess.check_output(

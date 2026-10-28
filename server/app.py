@@ -348,6 +348,7 @@ class TimelineRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     source: str = Field(pattern="^(local|github)$")
     location: str = Field(min_length=1, max_length=4096)
+    directory: str = Field(default="", max_length=512)
 
 
 class TimelineSelection(BaseModel):
@@ -372,7 +373,7 @@ class TimelineRunRequest(BaseModel):
 @app.post("/api/timeline/analyze")
 async def timeline_analyze(spec: TimelineRequest):
     try:
-        return await analyze_timeline(spec.source, spec.location)
+        return await analyze_timeline(spec.source, spec.location, spec.directory)
     except (BoundaryError, ValueError, OSError) as error:
         raise HTTPException(400, str(error)) from error
 

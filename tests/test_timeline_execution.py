@@ -185,6 +185,17 @@ class ExecutionTests(unittest.TestCase):
         self.assertFalse(_patch_allowed(["../outside.py"]))
         self.assertFalse(_patch_allowed(["test.cjs"]))
         self.assertFalse(_patch_allowed(["src/app.test.mjs"]))
+        for path in (
+            "go.mod",
+            "go.sum",
+            "main_test.go",
+            "Cargo.toml",
+            "Cargo.lock",
+            "bun.lock",
+            "bun.lockb",
+        ):
+            with self.subTest(path=path):
+                self.assertFalse(_patch_allowed([path]))
 
     def test_archive_rejects_symlinks(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -382,6 +393,7 @@ class ExecutionTests(unittest.TestCase):
 
             analysis = {
                 "ecosystem": "python",
+                "manager": "pip",
                 "packages": [
                     {"name": "demo", "direct": True, "releases": [{"version": "1"}]}
                 ],
@@ -400,7 +412,7 @@ class ExecutionTests(unittest.TestCase):
                     run = await runs.start(
                         "a" * 32, "demo", ["1"], "python -m unittest"
                     )
-                    await started.wait()
+                    await asyncio.wait_for(started.wait(), timeout=2)
                     task = runs.tasks[run["id"]]
                     await runs.cancel(run["id"])
                     await task

@@ -15,6 +15,7 @@ from urllib.parse import quote
 import httpx
 from packaging.requirements import InvalidRequirement, Requirement
 from packaging.utils import canonicalize_name
+from packaging.version import InvalidVersion, Version
 from pydantic import BaseModel
 
 from server.config import DATA, BoundaryError, repository_url
@@ -32,6 +33,7 @@ GITHUB_MANIFESTS = {
     "bun.lock",
     "bun.lockb",
     "Cargo.toml",
+    "Cargo.lock",
     "go.mod",
 }
 SKIP_DIRS = {
@@ -276,10 +278,6 @@ def _node_dependencies(path: Path) -> tuple[str, list[dict], list[str]]:
         else "npm"
     )
     warnings = []
-    if manager == "bun":
-        warnings.append(
-            "Bun is not supported for resolution or Sandbox experiments; release metadata is available for exploration only."
-        )
     direct = {}
     for group in (
         "dependencies",
@@ -297,7 +295,7 @@ def _node_dependencies(path: Path) -> tuple[str, list[dict], list[str]]:
                 }
     versions = {}
     lockfile = path / "package-lock.json"
-    if lockfile.is_file():
+    if manager == "npm" and lockfile.is_file():
         lock = json.loads(lockfile.read_text())
         duplicates = set()
         for location, item in lock.get("packages", {}).items():
@@ -312,10 +310,8 @@ def _node_dependencies(path: Path) -> tuple[str, list[dict], list[str]]:
                 + ", ".join(sorted(duplicates))
                 + "; the timeline shows only one instance per package."
             )
-    elif manager in ("yarn", "pnpm"):
-        warnings.append(
-            f"{manager} lockfile present; installed versions require native resolution."
-        )
+    elif manager in ("yarn", "pnpm", "bun"):
+        warnings.append(f"{manager} installed versions require native resolution.")
     if not direct:
         raise BoundaryError("No dependencies found in package.json.")
     packages = [
@@ -340,28 +336,69 @@ def _experimental_dependencies(
     path: Path, ecosystem: str
 ) -> tuple[str, list[dict], list[str]]:
     packages = []
+    warnings = []
     if ecosystem == "rust":
         doc = tomllib.loads((path / "Cargo.toml").read_text())
+        lock = {}
+        if (path / "Cargo.lock").is_file():
+            for entry in tomllib.loads((path / "Cargo.lock").read_text()).get(
+                "package", []
+            ):
+                if entry.get("name") and entry.get("version"):
+                    lock.setdefault(entry["name"], set()).add(entry["version"])
         for section in ("dependencies", "dev-dependencies", "build-dependencies"):
             for name, spec in doc.get(section, {}).items():
+                if isinstance(spec, dict) and any(
+                    key in spec
+                    for key in ("path", "git", "workspace", "package", "registry")
+                ):
+                    warnings.append(
+                        f"Cargo dependency {name} uses a path, Git, workspace, alias or custom registry and is not included."
+                    )
+                    continue
                 requirement = (
                     spec if isinstance(spec, str) else spec.get("version", "*")
                 )
+                if any(item["name"] == name for item in packages):
+                    warnings.append(
+                        f"Cargo dependency {name} appears in multiple sections; review its constraints."
+                    )
+                    continue
                 packages.append(
                     {
                         "name": name,
                         "requirement": requirement,
                         "source": f"Cargo.toml:{section}",
                         "marker": None,
-                        "current": None,
+                        "current": next(iter(lock.get(name, set())))
+                        if len(lock.get(name, set())) == 1
+                        else None,
                         "direct": True,
                     }
                 )
     else:
         # shortcut: only standard require declarations, support full Go module graph after validation.
+        warnings.append(
+            "Go dates are fetched for up to 30 recent releases per module; other versions are listed without dates."
+        )
         text = (path / "go.mod").read_text()
-        for name, version in re.findall(
-            r"(?m)^\s*(?:require\s+)?([A-Za-z0-9][\w.\-/]+)\s+(v\d[^\s]*)", text
+        requirements = []
+        in_require_block = False
+        for line in text.splitlines():
+            stripped = line.strip()
+            if re.match(r"^require\s*\(", stripped):
+                in_require_block = True
+                continue
+            if in_require_block and stripped.startswith(")"):
+                in_require_block = False
+                continue
+            if in_require_block:
+                requirements.append(stripped)
+            elif stripped.startswith("require "):
+                requirements.append(stripped[len("require ") :])
+        for name, version, comment in re.findall(
+            r"(?m)^\s*([A-Za-z0-9][\w.\-/]+)\s+(v\d[^\s]*)([^\n]*)",
+            "\n".join(requirements),
         ):
             packages.append(
                 {
@@ -370,13 +407,16 @@ def _experimental_dependencies(
                     "source": "go.mod",
                     "marker": None,
                     "current": version,
-                    "direct": True,
+                    "direct": "// indirect" not in comment,
                 }
             )
     return (
         ("cargo" if ecosystem == "rust" else "go"),
         packages,
-        [f"{ecosystem.title()} support is experimental and has not been validated."],
+        [
+            *warnings,
+            f"{ecosystem.title()} integration is limited to single-module projects and remains experimental.",
+        ],
     )
 
 
@@ -434,8 +474,30 @@ async def _releases(
                 for version in data.splitlines()
                 if version
             ]
-            package["metadata_error"] = (
-                "Go release dates are not available in the module version list."
+
+            def version_order(item):
+                try:
+                    return Version(item["version"].removeprefix("v"))
+                except InvalidVersion:
+                    return Version("0")
+
+            # shortcut: load dates for the newest 30 Go releases; expand if users need older timeline points.
+            async def go_date(item):
+                try:
+                    async with limiter:
+                        info = await client.get(
+                            url.rsplit("/", 1)[0]
+                            + "/"
+                            + quote(item["version"], safe="")
+                            + ".info"
+                        )
+                        info.raise_for_status()
+                        item["date"] = info.json().get("Time")
+                except (httpx.HTTPError, ValueError, TypeError):
+                    pass
+
+            await asyncio.gather(
+                *(go_date(item) for item in sorted(releases, key=version_order)[-30:])
             )
         package["releases"] = releases
     except (httpx.HTTPError, ValueError, KeyError, TypeError):
@@ -443,8 +505,25 @@ async def _releases(
         package["metadata_error"] = "Registry metadata unavailable."
 
 
-async def _github_manifests(url: str, destination: Path) -> str:
-    """Read only root manifests at an immutable public GitHub revision."""
+def project_subdirectory(value: str) -> str:
+    value = value.strip()
+    if value in ("", "."):
+        return ""
+    parts = value.split("/")
+    if len(parts) > 12 or any(
+        not re.fullmatch(r"[A-Za-z0-9_.-]+", part)
+        or part in {".", ".."}
+        or part in SKIP_DIRS
+        for part in parts
+    ):
+        raise BoundaryError(
+            "Use a relative project subdirectory without symlinks or parent paths."
+        )
+    return "/".join(parts)
+
+
+async def _github_manifests(url: str, destination: Path, directory: str = "") -> str:
+    """Read selected-directory manifests at an immutable public GitHub revision."""
     repo = url.removeprefix("https://github.com/")
     api = f"https://api.github.com/repos/{repo}"
     try:
@@ -459,14 +538,32 @@ async def _github_manifests(url: str, destination: Path) -> str:
                 re.fullmatch(r"[0-9a-f]{40,64}", item) for item in (revision, tree)
             ):
                 raise BoundaryError("GitHub returned an invalid commit or tree ID.")
-            listing = await client.get(f"{api}/git/trees/{tree}")
-            listing.raise_for_status()
-            tree_data = listing.json()
-            if tree_data.get("truncated"):
-                raise BoundaryError(
-                    "GitHub returned an incomplete root listing; dependency discovery cannot continue safely."
-                )
-            entries = tree_data["tree"]
+            for component in [*(directory.split("/") if directory else []), ""]:
+                listing = await client.get(f"{api}/git/trees/{tree}")
+                listing.raise_for_status()
+                tree_data = listing.json()
+                if tree_data.get("truncated"):
+                    raise BoundaryError(
+                        "GitHub returned an incomplete directory listing; dependency discovery cannot continue safely."
+                    )
+                entries = tree_data["tree"]
+                if component:
+                    match = next(
+                        (
+                            entry
+                            for entry in entries
+                            if entry.get("path") == component
+                            and entry.get("type") == "tree"
+                        ),
+                        None,
+                    )
+                    if not match or not re.fullmatch(
+                        r"[0-9a-f]{40,64}", match.get("sha", "")
+                    ):
+                        raise BoundaryError(
+                            "The selected project subdirectory was not found in the repository."
+                        )
+                    tree = match["sha"]
             destination.mkdir()
             limiter = asyncio.Semaphore(6)
 
@@ -480,7 +577,7 @@ async def _github_manifests(url: str, destination: Path) -> str:
                     limiter,
                     client.stream(
                         "GET",
-                        f"https://raw.githubusercontent.com/{repo}/{revision}/{name}",
+                        f"https://raw.githubusercontent.com/{repo}/{revision}/{directory + '/' if directory else ''}{name}",
                     ) as response,
                 ):
                     response.raise_for_status()
@@ -509,7 +606,8 @@ async def _github_manifests(url: str, destination: Path) -> str:
         ) from error
 
 
-async def analyze(source: str, location: str) -> dict:
+async def analyze(source: str, location: str, directory: str = "") -> dict:
+    directory = project_subdirectory(directory)
     analysis_id = uuid.uuid4().hex
     root = TIMELINES / analysis_id
     destination = root / "source"
@@ -518,7 +616,7 @@ async def analyze(source: str, location: str) -> dict:
     try:
         if source == "github":
             url = repository_url(location)
-            revision = await _github_manifests(url, destination)
+            revision = await _github_manifests(url, destination, directory)
         elif source == "local":
             path = Path(location).expanduser()
             if not path.is_dir():
@@ -527,6 +625,14 @@ async def analyze(source: str, location: str) -> dict:
                 raise BoundaryError(
                     "Choose a project directory outside Oriclus workspace history."
                 )
+            for component in directory.split("/") if directory else []:
+                path = path / component
+                if path.is_symlink():
+                    raise BoundaryError(
+                        "Project subdirectories cannot contain symlinks."
+                    )
+            if not path.is_dir():
+                raise BoundaryError("The selected project subdirectory does not exist.")
             await asyncio.to_thread(_snapshot, path, destination)
         else:
             raise BoundaryError("Source must be local or GitHub.")
@@ -562,7 +668,11 @@ async def analyze(source: str, location: str) -> dict:
             )
         if source == "github":
             warnings.append(
-                "Only root dependency files were downloaded for exploration. Resolution and tests fetch the recorded GitHub commit in Nebius Sandboxes; project files there exclude credentials, runtime directories and symlinks."
+                "Only dependency files from the selected directory were downloaded for exploration. Resolution and tests fetch the recorded GitHub commit in Nebius Sandboxes; project files there exclude credentials, runtime directories and symlinks."
+            )
+        if directory:
+            warnings.append(
+                "This is a standalone subdirectory snapshot. Parent workspace files and sibling projects are excluded; workspace-dependent builds may not work."
             )
         # Registry declarations are context, not proof of an installed dependency.
         pinned = []
@@ -628,7 +738,11 @@ async def analyze(source: str, location: str) -> dict:
                 "Only the first 300 dependencies are shown; refine the project for a complete view."
             )
             packages = packages[:300]
-        async with httpx.AsyncClient(timeout=15, follow_redirects=False) as client:
+        async with httpx.AsyncClient(
+            timeout=15,
+            follow_redirects=False,
+            headers={"User-Agent": "oriclus/1.0 (https://github.com/azharizz/oriclus)"},
+        ) as client:
             limiter = asyncio.Semaphore(12)
             await asyncio.gather(
                 *(
@@ -642,9 +756,14 @@ async def analyze(source: str, location: str) -> dict:
             "source_revision": revision,
             "source_url": url if source == "github" else None,
             "source_preparation": "github_commit" if source == "github" else "snapshot",
-            "project_name": Path(location.rstrip("/")).name.removesuffix(".git"),
+            "source_subdirectory": directory,
+            "project_name": Path(location.rstrip("/")).name.removesuffix(".git")
+            + (f"/{directory}" if directory else ""),
             "project_key": hashlib.sha256(
-                f"{source}:{location.strip()}".encode()
+                (
+                    f"{source}:{location.strip()}"
+                    + (f":{directory}" if directory else "")
+                ).encode()
             ).hexdigest(),
             "ecosystem": ecosystem,
             "manager": manager,
@@ -727,10 +846,20 @@ rm -f {lock}
 python -c {shlex.quote(parse)}
 """
         ecosystem = "python"
-    elif manager in ("npm", "yarn", "pnpm"):
+    elif manager in ("npm", "yarn", "pnpm", "bun"):
         data = json.dumps({"selections": selections, "manager": manager})
         js = """const fs=require('fs');const d=JSON.parse(process.argv[1]);const p=JSON.parse(fs.readFileSync('package.json'));for(const [name,version] of Object.entries(d.selections)){let direct=false;for(const g of ['dependencies','devDependencies','optionalDependencies','peerDependencies']){if(p[g]&&Object.hasOwn(p[g],name)){p[g][name]=version;direct=true;}}if(!direct){if(d.manager==='yarn')p.resolutions={...p.resolutions,[name]:version};else if(d.manager==='pnpm'){p.pnpm=p.pnpm||{};p.pnpm.overrides={...p.pnpm.overrides,[name]:version};}else p.overrides={...p.overrides,[name]:version};}}fs.writeFileSync('package.json',JSON.stringify(p,null,2));"""
-        if manager == "npm":
+        if manager == "bun":
+            bootstrap = ""
+            command = "bun install --ignore-scripts"
+            report = r"""const fs=require('fs');const wanted=JSON.parse(process.argv[1]);const text=fs.readFileSync('/tmp/oriclus-bun-tree','utf8');const out={},dup=new Set();for(const line of text.split('\n')){const m=line.match(/[├└]──\s+((?:@[^/\s]+\/)?[^@\s]+)@(\d[^\s]*)/);if(!m)continue;const [,n,v]=m;if(out[n]&&out[n]!==v)dup.add(n);out[n]=v;}for(const n of dup)delete out[n];if(Object.entries(wanted).some(([n,v])=>out[n]!==v))throw Error('Selected Bun version was not retained or has duplicates');console.log('__ORICLUS_RESULT__='+JSON.stringify({_oriclus:1,selected:out,duplicates:[...dup]}));"""
+            report = (
+                "bun pm ls --all > /tmp/oriclus-bun-tree && bun -e "
+                + shlex.quote(report)
+                + " "
+                + shlex.quote(json.dumps(selections))
+            )
+        elif manager == "npm":
             command = "rm -f package-lock.json; npm install --package-lock-only --ignore-scripts --no-audit --no-fund"
             report = """const fs=require('fs');const p=JSON.parse(fs.readFileSync('package-lock.json'));const out={},dup=new Set();for(const [k,v] of Object.entries(p.packages||{})){if(k.startsWith('node_modules/')&&v.version){const n=k.split('node_modules/').pop();if(out[n]&&out[n]!==v.version)dup.add(n);if(!(n in out)||k===`node_modules/${n}`)out[n]=v.version;}}for(const n of dup)delete out[n];console.log('__ORICLUS_RESULT__='+JSON.stringify({_oriclus:1,selected:out,duplicates:[...dup]}));"""
             bootstrap = ""
@@ -742,24 +871,54 @@ python -c {shlex.quote(parse)}
             else:
                 command = "rm -f yarn.lock; COREPACK_ENABLE_DOWNLOAD_PROMPT=0 YARN_ENABLE_SCRIPTS=false yarn install --mode=update-lockfile || COREPACK_ENABLE_DOWNLOAD_PROMPT=0 yarn install --ignore-scripts --non-interactive"
                 report = r"""const fs=require('fs'),Y=require('/tmp/oriclus-tools/node_modules/yaml'),L=require('/tmp/oriclus-tools/node_modules/@yarnpkg/lockfile');const raw=fs.readFileSync('yarn.lock','utf8');let d;if(raw.includes('__metadata:'))d=Y.parse(raw);else d=L.parse(raw).object;const out={},dup=new Set();for(const [k,v] of Object.entries(d)){if(k==='__metadata'||!v||!v.version)continue;for(const s of k.split(/,\s*/)){const i=s.lastIndexOf('@');if(i>0){const n=s.slice(0,i).replace(/^['"]|['"]$/g,'');if(out[n]&&out[n]!==String(v.version))dup.add(n);if(!out[n])out[n]=String(v.version);}}}for(const n of dup)delete out[n];console.log('__ORICLUS_RESULT__='+JSON.stringify({_oriclus:1,selected:out,duplicates:[...dup]}));"""
-        script = f"""node -e {shlex.quote(js)} {shlex.quote(data)}
+        js_runner = "bun" if manager == "bun" else "node"
+        report_command = (
+            report if manager == "bun" else "node -e " + shlex.quote(report)
+        )
+        script = f"""{js_runner} -e {shlex.quote(js)} {shlex.quote(data)}
 {bootstrap} > /tmp/oriclus-resolve.log 2>&1 || {{ cat /tmp/oriclus-resolve.log; exit 1; }}
 {command} >> /tmp/oriclus-resolve.log 2>&1 || {{ cat /tmp/oriclus-resolve.log; exit 1; }}
-node -e {shlex.quote(report)}
+{report_command}
 """
-        ecosystem = "javascript"
+        ecosystem = "bun" if manager == "bun" else "javascript"
     elif manager in ("go", "cargo"):
-        spec = shlex.quote(
-            f"{package}@{version}" if manager == "go" else f"{package}@={version}"
-        )
         if manager == "go":
-            command = (
-                f"go get {spec} && go list -m -f '{{{{.Path}}}} {{{{.Version}}}}' all"
+            specs = " ".join(
+                shlex.quote(f"{name}@{value}") for name, value in selections.items()
             )
+            checks = "\n".join(
+                f"grep -Fqx -- {shlex.quote(name + ' ' + value)} /tmp/oriclus-go-tree || {{ echo 'Selected Go version was not retained'; exit 1; }}"
+                for name, value in selections.items()
+            )
+            script = f"""export GOPATH=/tmp/oriclus-go GOCACHE=/tmp/oriclus-go-build GOTOOLCHAIN=local
+go get {specs} > /tmp/oriclus-resolve.log 2>&1 || {{ cat /tmp/oriclus-resolve.log; exit 1; }}
+go list -m -f '{{{{.Path}}}} {{{{.Version}}}}' all > /tmp/oriclus-go-tree || exit 1
+{checks}
+sed 's/^/__ORICLUS_PACKAGE__=/' /tmp/oriclus-go-tree
+"""
         else:
-            command = f"cargo add {spec} && cargo tree --prefix none --format '{{p}}'"
-        script = f"""{command} > /tmp/oriclus-resolve.log 2>&1 || {{ cat /tmp/oriclus-resolve.log; exit 1; }}
-sed 's/^/__ORICLUS_PACKAGE__=/' /tmp/oriclus-resolve.log
+            if any(
+                not next(item for item in analysis["packages"] if item["name"] == name)[
+                    "direct"
+                ]
+                for name in selections
+            ):
+                raise BoundaryError(
+                    "Cargo experiments currently require direct dependencies."
+                )
+            specs = " ".join(
+                shlex.quote(f"{name}@={value}") for name, value in selections.items()
+            )
+            code = (
+                "import json,sys; d=json.load(open('/tmp/oriclus-cargo-metadata.json')); wanted=json.loads(sys.argv[1]); out={}; dup=set(); "
+                + "\nfor p in d['packages']:\n n,v=p['name'],p['version']; dup.add(n) if n in out and out[n]!=v else None; out[n]=v\n"
+                + "for n in dup: out.pop(n,None)\n"
+                + "assert all(out.get(n)==v for n,v in wanted.items()), 'Selected Cargo version was not retained'\n"
+                + "print('__ORICLUS_RESULT__='+json.dumps({'_oriclus':1,'selected':out,'duplicates':sorted(dup)}))"
+            )
+            script = f"""cargo add {specs} > /tmp/oriclus-resolve.log 2>&1 || {{ cat /tmp/oriclus-resolve.log; exit 1; }}
+cargo metadata --locked --format-version 1 > /tmp/oriclus-cargo-metadata.json || exit 1
+python3 -c {shlex.quote(code)} {shlex.quote(json.dumps(selections))}
 """
         ecosystem = "go" if manager == "go" else "rust"
     else:
@@ -983,7 +1142,9 @@ async def resolve(
     ):
         note += " Some resolved-package requirement metadata was not inspected or unavailable."
     if manager in ("go", "cargo"):
-        note += " This ecosystem is experimental and unverified."
+        note += (
+            " This ecosystem is experimental; results depend on project configuration."
+        )
     # The resolver can discover transitive dependencies absent from a lockfile.
     latest = get_analysis(analysis_id)
     known = {name_key(item["name"]) for item in latest["packages"]}
@@ -1000,7 +1161,11 @@ async def resolve(
         for name in missing[:50]
     ]
     if additional:
-        async with httpx.AsyncClient(timeout=15, follow_redirects=False) as client:
+        async with httpx.AsyncClient(
+            timeout=15,
+            follow_redirects=False,
+            headers={"User-Agent": "oriclus/1.0 (https://github.com/azharizz/oriclus)"},
+        ) as client:
             limiter = asyncio.Semaphore(12)
             await asyncio.gather(
                 *(

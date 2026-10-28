@@ -1,0 +1,7 @@
+{
+  "name": "oriclus-bun-example",
+  "private": true,
+  "packageManager": "bun@1.3.11",
+  "dependencies": { "semver": "7.5.4", "is-number": "6.0.0" },
+  "scripts": { "test": "bun test" }
+}

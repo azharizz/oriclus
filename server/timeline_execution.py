@@ -41,10 +41,14 @@ IMAGES = {
     "python": "python:3.12-slim",
     "node": "node:22-bookworm",
     "javascript": "node:22-bookworm",
+    "bun": "oven/bun:1",
     "go": "golang:1.24",
     "rust": "rust:1",
 }
 RUNS = DATA / "timeline-runs"
+GO_ENV = (
+    "export GOPATH=/tmp/oriclus-go GOCACHE=/tmp/oriclus-go-build GOTOOLCHAIN=local; "
+)
 
 
 def _credentials() -> tuple[str, str]:
@@ -192,11 +196,12 @@ class Sandbox:
         if ecosystem not in IMAGES:
             raise BoundaryError(f"Unsupported Sandbox ecosystem: {ecosystem}.")
         if source and source.get("source_preparation") == "github_commit":
-            from server.time_machine import SKIP_DIRS, SKIP_FILES
+            from server.time_machine import SKIP_DIRS, SKIP_FILES, project_subdirectory
 
             try:
                 url = repository_url(source["source_url"])
                 revision = source["source_revision"]
+                directory = project_subdirectory(source.get("source_subdirectory", ""))
                 if not re.fullmatch(r"[0-9a-f]{40,64}", revision):
                     raise ValueError("Invalid Git revision.")
             except (ValueError, KeyError, TypeError):
@@ -212,6 +217,18 @@ class Sandbox:
             cleanup = f"""import os,shutil
 from pathlib import Path
 root=Path('/work/project')
+directory={directory!r}
+if directory:
+    target=root
+    for part in directory.split('/'):
+        target=target/part
+        if target.is_symlink(): raise SystemExit('Project subdirectory contains a symlink')
+    if not target.is_dir(): raise SystemExit('Project subdirectory is missing')
+    temporary=Path('/work/oriclus-selected-project')
+    if temporary.exists(): raise SystemExit('Project destination is occupied')
+    target.rename(temporary)
+    shutil.rmtree(root)
+    temporary.rename(root)
 skip_dirs={sorted(SKIP_DIRS)!r}
 skip_files={sorted(SKIP_FILES)!r}
 for base,dirs,files in os.walk(root,topdown=True,followlinks=False):
@@ -301,6 +318,18 @@ async def execute_snapshot(
 
 
 def _install(manager: str, ecosystem: str, root: Path) -> str:
+    if manager == "bun":
+        return (
+            "bun install --frozen-lockfile"
+            if (root / "bun.lock").exists() or (root / "bun.lockb").exists()
+            else "bun install"
+        )
+    if manager == "go":
+        return GO_ENV + "go mod download all"
+    if manager == "cargo":
+        return (
+            "cargo fetch --locked" if (root / "Cargo.lock").exists() else "cargo fetch"
+        )
     if ecosystem == "python":
         if manager == "uv":
             return "python -m pip install uv && uv sync --frozen"
@@ -319,6 +348,12 @@ def _install(manager: str, ecosystem: str, root: Path) -> str:
 
 
 def _candidate_install(manager: str) -> str:
+    if manager == "bun":
+        return "bun install --frozen-lockfile"
+    if manager == "go":
+        return GO_ENV + "go mod download all"
+    if manager == "cargo":
+        return "cargo fetch --locked"
     if manager == "pip":
         code = "import json,subprocess,sys; p=json.load(open('/tmp/oriclus-resolution.json')); s=[x['metadata']['name']+'=='+x['metadata']['version'] for x in p['install']]; sys.exit(subprocess.call([sys.executable,'-m','pip','install','--upgrade']+s))"
         return f"python -c {shlex.quote(code)} && python -m pip check"
@@ -335,8 +370,8 @@ def _candidate_install(manager: str) -> str:
     raise BoundaryError(f"Testing {manager} projects is not supported.")
 
 
-def _test_environment(command: str) -> str:
-    return f'export PATH="/work/project/.venv/bin:$PATH"; {command}'
+def _test_environment(command: str, manager: str | None = None) -> str:
+    return f'export PATH="/work/project/.venv/bin:$PATH"; {GO_ENV if manager == "go" else ""}{command}'
 
 
 def _patch_allowed(paths: list[str]) -> bool:
@@ -354,6 +389,12 @@ def _patch_allowed(paths: list[str]) -> bool:
         "poetry.lock",
         "yarn.lock",
         "pnpm-lock.yaml",
+        "bun.lock",
+        "bun.lockb",
+        "Cargo.toml",
+        "Cargo.lock",
+        "go.mod",
+        "go.sum",
     }
     return bool(paths) and all(
         not PurePosixPath(name).is_absolute()
@@ -371,6 +412,7 @@ def _patch_allowed(paths: list[str]) -> bool:
                 ".spec.cjs",
                 ".spec.mjs",
                 ".spec.ts",
+                "_test.go",
             )
         )
         for name in paths
@@ -393,6 +435,7 @@ async def _repair(
     progress: Callable[[str], None] | None = None,
     evidence: list[dict] | None = None,
     decision: Callable[[dict], None] | None = None,
+    manager: str | None = None,
 ) -> dict:
     from server import agent
 
@@ -410,7 +453,11 @@ async def _repair(
         if progress:
             progress("agent_tool")
         executed = await box.run(
-            working, _test_environment(text), network=False, save=True, timeout=120
+            working,
+            _test_environment(text, manager),
+            network=False,
+            save=True,
+            timeout=120,
         )
         if progress:
             progress("investigating")
@@ -491,7 +538,7 @@ async def _repair(
             progress("verifying")
         verification = await box.run(
             image,
-            f"git apply --check /tmp/oriclus-repair.patch && git apply /tmp/oriclus-repair.patch && ({_test_environment(command)})",
+            f"git apply --check /tmp/oriclus-repair.patch && git apply /tmp/oriclus-repair.patch && ({_test_environment(command, manager)})",
             files=files,
             network=False,
         )
@@ -599,10 +646,6 @@ class TimelineRuns:
         from server.time_machine import get_analysis, snapshot_path
 
         analysis = get_analysis(analysis_id)
-        if analysis.get("manager") == "bun":
-            raise BoundaryError(
-                "Sandbox experiments for Bun projects are not supported."
-            )
         match = next((p for p in analysis["packages"] if p["name"] == package), None)
         if (
             not match
@@ -735,10 +778,13 @@ class TimelineRuns:
             run["status"] = "running"
             self._save(run)
             box = Sandbox()
+            sandbox_ecosystem = (
+                "bun" if analysis["manager"] == "bun" else analysis["ecosystem"]
+            )
             common = (
-                await box.project(path, analysis["ecosystem"], progress, analysis)
+                await box.project(path, sandbox_ecosystem, progress, analysis)
                 if analysis.get("source_preparation") == "github_commit"
-                else await box.project(path, analysis["ecosystem"], progress)
+                else await box.project(path, sandbox_ecosystem, progress)
             )
             run["shared_image_id"] = common
             self._save(run)
@@ -759,14 +805,14 @@ class TimelineRuns:
             parent = prepared["image_id"]
             progress("testing_baseline")
             baseline = await box.run(
-                parent, _test_environment(run["test_command"]), network=False
+                parent,
+                _test_environment(run["test_command"], analysis["manager"]),
+                network=False,
             )
             run["baseline"] = baseline
             self._save(run)
-            if analysis["ecosystem"] not in ("python", "node"):
-                raise BoundaryError(
-                    "Sandbox tests currently support Python and JavaScript projects."
-                )
+            if analysis["ecosystem"] not in ("python", "node", "go", "rust"):
+                raise BoundaryError("Sandbox tests do not support this ecosystem.")
             semaphore = asyncio.Semaphore(3)
 
             async def experiment(index: int, combination: dict[str, str]) -> None:
@@ -818,7 +864,9 @@ class TimelineRuns:
                             progress("testing_candidate", label, index)
                             result = await candidate_box.run(
                                 candidate_image,
-                                _test_environment(run["test_command"]),
+                                _test_environment(
+                                    run["test_command"], analysis["manager"]
+                                ),
                                 network=False,
                             )
                             item.update(result)
@@ -859,16 +907,24 @@ class TimelineRuns:
                                     TypeError,
                                 ):
                                     evidence = []
-                                item["repair"] = await _repair(
-                                    candidate_box,
-                                    candidate_image,
-                                    run["test_command"],
-                                    "dependency combination",
-                                    label,
-                                    result,
-                                    lambda stage: progress(stage, label, index),
-                                    evidence,
-                                    lambda event: record_decision(event, label),
+                                item["repair"] = (
+                                    {
+                                        "status": "unavailable",
+                                        "error": "Rust source repair is disabled because tests may be embedded in source files.",
+                                    }
+                                    if analysis["ecosystem"] == "rust"
+                                    else await _repair(
+                                        candidate_box,
+                                        candidate_image,
+                                        run["test_command"],
+                                        "dependency combination",
+                                        label,
+                                        result,
+                                        lambda stage: progress(stage, label, index),
+                                        evidence,
+                                        lambda event: record_decision(event, label),
+                                        analysis["manager"],
+                                    )
                                 )
                                 if (
                                     run.get("dependency_repair_enabled")
