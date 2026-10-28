@@ -355,18 +355,6 @@ export default function App() {
           </a>
         </header>
         <main id="main" tabIndex={-1}>
-          {cloud.data?.enabled && (
-            <p className="history-notice" role="status">
-              Public hosted demo · {cloud.data.remaining} of {cloud.data.limit}{" "}
-              shared operations remaining. Analyses, resolutions, experiments
-              and research each count; page visits and progress checks do not.
-              Attempts that pass the hosted input limits count even when they
-              fail. Public GitHub projects only; saved evidence is private to
-              this browser session. Hosted experiments allow four combinations,
-              news refreshes five libraries, and agent repairs up to six model
-              turns to limit costs.
-            </p>
-          )}
           {health.error && (
             <p className="error error-offline" role="alert">
               Cannot reach Oriclus. Check that the local server is running.
@@ -448,6 +436,16 @@ export default function App() {
                       ? "Saved analyses and experiment evidence are stored in this browser’s private hosted session. Clearing its cookie makes that session inaccessible from this browser."
                       : "Keep this local execution service on localhost and use repositories you trust. Older Docker records remain stored locally."}
                   </p>
+                  {cloud.data?.enabled && (
+                    <p>
+                      {cloud.data.remaining} of {cloud.data.limit} shared
+                      operations remain. Analyses, resolutions, experiments and
+                      research count, including failed attempts after hosted
+                      input validation. Hosted experiments allow four
+                      combinations, news refreshes five libraries, and agent
+                      repairs six model turns.
+                    </p>
+                  )}
                 </details>
               </>
             ) : page === "news" ? (
