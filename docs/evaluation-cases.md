@@ -16,13 +16,17 @@ A [reported compatibility issue](https://github.com/Kludex/starlette/discussions
 
 - Command: `python -m unittest -v`.
 - Observed in Sandbox: baseline passed; HTTPX 0.27.2 passed; HTTPX 0.28.0 failed with `Client.__init__() got an unexpected keyword argument 'app'`.
-- Repair result: **rejected**, because no permitted production-source patch was produced. An upgrade or pin may be a reasonable option but the agent is not allowed to alter dependency manifests.
+- Repair result for this earlier run: **rejected**, because no permitted production-source patch was produced. That run did not include the later dependency-file proposal workflow.
 - Local run: `118c6517968f44308f7731ba67f34328`.
 - Sources: [HTTPX 0.28.0 release](https://github.com/encode/httpx/releases/tag/0.28.0), [Starlette release notes](https://www.starlette.io/release-notes/#0372-march-5-2024).
+
+Dependency-file follow-up: in a direct live Nemotron and Tavily-assisted Sandbox evaluation, a proposed Starlette 0.37.0 did not pass the original test. Given that failed attempt, Nemotron proposed Starlette 0.37.2 with HTTPX 0.28.0; Oriclus generated the requirements change and the original test passed in a fresh, independently installed Sandbox. A separate full workflow evaluation simulated a rejected source repair to exercise the fallback: the live model proposed Starlette 0.37.1, which failed, then repeated it and was rejected. Local run: `a650588d99f042c78df7a0906b2177a9`. This controlled run is labeled and excluded from aggregate metrics. Neither outcome establishes how reliably the model repairs other projects.
 
 ## Real JavaScript consumer: two tests, different conclusions
 
 Repository: [microsoft/license-checker-webpack-plugin](https://github.com/microsoft/license-checker-webpack-plugin) at commit `cdefc710375f3da72623fc110b1ed49b16dd7283`. We compared the saved snapshot with that commit's freshly cloned snapshot. The source imports the minimatch default function; the [minimatch 9 changelog](https://github.com/isaacs/minimatch/blob/main/changelog.md) describes named exports.
+
+The same repository snapshot was also tested in separate Yarn and pnpm Sandbox runs, using locally generated lockfiles: the baseline and a minimatch 3.1.2 / lodash 4.17.21 combination passed the original 24 tests. These runs test execution with those managers, not model-proposed dependency-file repair on this project.
 
 In a subsequent live four-combination npm Sandbox matrix, minimatch 3.1.2 and 9.0.5 were combined with lodash 4.17.20 and 4.17.21; glob 7.1.6 and semver 6.3.0 were fixed. The same command ran the repository's original 24 tests followed by the focused probe below. All four combinations resolved; both minimatch 3 combinations passed, and both minimatch 9 combinations failed the probe. Nemotron proposed named-export import changes for both failing combinations; each passed the original suite and probe in an independent Sandbox branch. The probe is additional coverage, not an original repository test. These patches target minimatch 9 and have not been shown to preserve support for minimatch 3. Review them before use. Local run: `b0390d41e76e488582df080743b4cad9`.
 
@@ -43,7 +47,7 @@ Analyze `examples/timeline-python`, then select Werkzeug 2.2.3. The project's Ma
 
 ## Negative control: repair rejected
 
-Analyze `examples/unrepairable`, select MarkupSafe 2.0.1 and 2.1.5, and run `python -m unittest -v`. The test directly imports the removed API, while the agent is not allowed to change tests or dependency requirements. Observed baseline and 2.0.1 passed, 2.1.5 failed, and the repair was rejected. Local run: `ed0abd39f1704c0ab2dae6a1c17383d1`.
+Analyze `examples/unrepairable`, select MarkupSafe 2.0.1 and 2.1.5, and run `python -m unittest -v`. The test directly imports the removed API, while the agent is not allowed to change tests or the selected primary version. Observed baseline and 2.0.1 passed, 2.1.5 failed, and the source repair was rejected. This earlier run did not include dependency-file proposals. Local run: `ed0abd39f1704c0ab2dae6a1c17383d1`.
 
 ## Interpretation and feedback
 

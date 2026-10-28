@@ -9,7 +9,14 @@
 - [x] Verify the synthetic matrix and source repairs against real Sandbox operations and record the exact results, using pip and uv.
 - [x] Verify a bounded npm matrix on an independent real open-source project, including the original tests and a clearly labeled additional probe.
 - [ ] Implement a repeatable multi-dependency uv/CI comparison; one exploratory comparison is not a controlled benchmark.
-- [ ] Enable and independently verify agent-proposed dependency manifest changes. The existing repair agent remains restricted to production source patches.
+- [x] Verify bounded model-proposed dependency changes in live Sandboxes; record both a verified proposal and a failed full-workflow evaluation. Broader repair reliability remains unproven.
+
+## Workspace follow-up
+
+- [x] Show resolver-selected declared connections on the shared release timeline, with an accessible list and no claim of tested compatibility.
+- [x] Put Time Machine experiments in History; keep Docker records accessible separately.
+- [x] Visualize measured experiment, candidate, repair and timing distributions in Metrics.
+- [x] Verify the new screens in the browser and run live dependency-repair checks across available package managers. For uv, Poetry, npm, Yarn and pnpm the proposed changes were controlled inputs, not live model results; pip also received live Nemotron proposals.
 
 The approved plan in the task conversation is the source of truth. This checklist tracks its acceptance criteria and must not be used to claim unchecked work.
 
@@ -55,5 +62,5 @@ Scope notes: What’s New is manually refreshed and uses search-result publicati
 - [x] Add a persistent cross-project dependency news feed, deduplicate shared libraries, and refresh Tavily only through an explicit action with visible scope and progress.
 - [x] Improve the timeline with adaptive sub-year dates and accessible release hover/focus details.
 - [x] Add reproducible HTTPX/Starlette and real JavaScript-consumer cases, plus clear conflict and inconclusive cases; record actual test results and limits.
-- [ ] Prepare judge-facing setup, evidence and video/demo materials. Preserve the private repository until its visibility is explicitly changed.
-- [ ] Verify backend, frontend, real integrations and responsive views, then commit and push checkpoints.
+- [ ] Prepare judge-facing video/demo materials. The repository is public following the owner's approval.
+- [x] Verify backend, frontend, selected real integrations and responsive views, then commit and push checkpoints; broader configurations remain unverified.
