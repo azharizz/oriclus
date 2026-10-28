@@ -20,6 +20,20 @@ from pydantic import BaseModel
 from server.config import DATA, BoundaryError, repository_url
 
 TIMELINES = DATA / "timeline"
+GITHUB_MANIFESTS = {
+    "pyproject.toml",
+    "requirements.txt",
+    "uv.lock",
+    "poetry.lock",
+    "package.json",
+    "package-lock.json",
+    "yarn.lock",
+    "pnpm-lock.yaml",
+    "bun.lock",
+    "bun.lockb",
+    "Cargo.toml",
+    "go.mod",
+}
 SKIP_DIRS = {
     ".git",
     ".venv",
@@ -251,13 +265,21 @@ def _python_dependencies(path: Path) -> tuple[str, list[dict], list[str]]:
 def _node_dependencies(path: Path) -> tuple[str, list[dict], list[str]]:
     manifest = json.loads((path / "package.json").read_text())
     manager = (
-        "pnpm"
+        "bun"
+        if (path / "bun.lock").exists()
+        or (path / "bun.lockb").exists()
+        or str(manifest.get("packageManager", "")).startswith("bun@")
+        else "pnpm"
         if (path / "pnpm-lock.yaml").exists()
         else "yarn"
         if (path / "yarn.lock").exists()
         else "npm"
     )
     warnings = []
+    if manager == "bun":
+        warnings.append(
+            "Bun is not supported for resolution or Sandbox experiments; release metadata is available for exploration only."
+        )
     direct = {}
     for group in (
         "dependencies",
@@ -421,6 +443,72 @@ async def _releases(
         package["metadata_error"] = "Registry metadata unavailable."
 
 
+async def _github_manifests(url: str, destination: Path) -> str:
+    """Read only root manifests at an immutable public GitHub revision."""
+    repo = url.removeprefix("https://github.com/")
+    api = f"https://api.github.com/repos/{repo}"
+    try:
+        async with httpx.AsyncClient(
+            timeout=30, follow_redirects=False, headers={"User-Agent": "Oriclus"}
+        ) as client:
+            commit = await client.get(f"{api}/commits/HEAD")
+            commit.raise_for_status()
+            data = commit.json()
+            revision, tree = data["sha"], data["commit"]["tree"]["sha"]
+            if not all(
+                re.fullmatch(r"[0-9a-f]{40,64}", item) for item in (revision, tree)
+            ):
+                raise BoundaryError("GitHub returned an invalid commit or tree ID.")
+            listing = await client.get(f"{api}/git/trees/{tree}")
+            listing.raise_for_status()
+            tree_data = listing.json()
+            if tree_data.get("truncated"):
+                raise BoundaryError(
+                    "GitHub returned an incomplete root listing; dependency discovery cannot continue safely."
+                )
+            entries = tree_data["tree"]
+            destination.mkdir()
+            limiter = asyncio.Semaphore(6)
+
+            async def fetch(entry: dict) -> None:
+                name = entry["path"]
+                if entry.get("size", 0) > 20 * 1024 * 1024:
+                    raise BoundaryError(
+                        f"Repository manifest {name} exceeds the 20 MB inspection limit."
+                    )
+                async with (
+                    limiter,
+                    client.stream(
+                        "GET",
+                        f"https://raw.githubusercontent.com/{repo}/{revision}/{name}",
+                    ) as response,
+                ):
+                    response.raise_for_status()
+                    content = bytearray()
+                    async for chunk in response.aiter_bytes():
+                        content.extend(chunk)
+                        if len(content) > 20 * 1024 * 1024:
+                            raise BoundaryError(
+                                f"Repository manifest {name} exceeds the 20 MB inspection limit."
+                            )
+                (destination / name).write_bytes(content)
+
+            await asyncio.gather(
+                *(
+                    fetch(entry)
+                    for entry in entries
+                    if entry.get("path") in GITHUB_MANIFESTS
+                    and entry.get("type") == "blob"
+                    and entry.get("mode") in ("100644", "100755")
+                )
+            )
+            return revision
+    except (httpx.HTTPError, ValueError, KeyError, TypeError) as error:
+        raise BoundaryError(
+            "Could not inspect the public GitHub repository. Check access, network and GitHub rate limits."
+        ) from error
+
+
 async def analyze(source: str, location: str) -> dict:
     analysis_id = uuid.uuid4().hex
     root = TIMELINES / analysis_id
@@ -430,51 +518,7 @@ async def analyze(source: str, location: str) -> dict:
     try:
         if source == "github":
             url = repository_url(location)
-            clone = root / "clone"
-            process = await asyncio.create_subprocess_exec(
-                "git",
-                "-c",
-                "credential.helper=",
-                "clone",
-                "--depth",
-                "1",
-                "--",
-                url,
-                str(clone),
-                stdout=asyncio.subprocess.DEVNULL,
-                stderr=asyncio.subprocess.PIPE,
-                env={**os.environ, "GIT_TERMINAL_PROMPT": "0", "GIT_ASKPASS": ""},
-            )
-            try:
-                await asyncio.wait_for(process.communicate(), timeout=120)
-            except TimeoutError:
-                process.kill()
-                await process.wait()
-                raise BoundaryError("Repository clone timed out.") from None
-            if process.returncode:
-                raise BoundaryError("Could not clone the public GitHub repository.")
-            rev = await asyncio.create_subprocess_exec(
-                "git",
-                "-C",
-                str(clone),
-                "rev-parse",
-                "HEAD",
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.DEVNULL,
-            )
-            try:
-                raw, _ = await asyncio.wait_for(rev.communicate(), timeout=10)
-            except TimeoutError:
-                rev.kill()
-                await rev.wait()
-                raise BoundaryError(
-                    "Could not record the cloned Git revision."
-                ) from None
-            revision = raw.decode("ascii", errors="replace").strip()
-            if rev.returncode or not re.fullmatch(r"[0-9a-f]{40,64}", revision):
-                raise BoundaryError("Could not record the cloned Git revision.")
-            await asyncio.to_thread(_snapshot, clone, destination)
-            shutil.rmtree(clone)
+            revision = await _github_manifests(url, destination)
         elif source == "local":
             path = Path(location).expanduser()
             if not path.is_dir():
@@ -515,6 +559,10 @@ async def analyze(source: str, location: str) -> dict:
         if len(found) > 1:
             warnings.append(
                 f"Multiple ecosystems detected; showing {ecosystem}. Choose the relevant project directory for other ecosystems."
+            )
+        if source == "github":
+            warnings.append(
+                "Only root dependency files were downloaded for exploration. Resolution and tests fetch the recorded GitHub commit in Nebius Sandboxes; project files there exclude credentials, runtime directories and symlinks."
             )
         # Registry declarations are context, not proof of an installed dependency.
         pinned = []
@@ -592,6 +640,8 @@ async def analyze(source: str, location: str) -> dict:
             "id": analysis_id,
             "source": source,
             "source_revision": revision,
+            "source_url": url if source == "github" else None,
+            "source_preparation": "github_commit" if source == "github" else "snapshot",
             "project_name": Path(location.rstrip("/")).name.removesuffix(".git"),
             "project_key": hashlib.sha256(
                 f"{source}:{location.strip()}".encode()
@@ -793,7 +843,9 @@ async def resolve(
     manager = analysis["manager"]
     script, ecosystem = candidate_script(analysis, package, version)
     result, (declared, metadata_available) = await asyncio.gather(
-        execute_snapshot(snapshot_path(analysis_id), script, ecosystem, progress),
+        execute_snapshot(
+            snapshot_path(analysis_id), script, ecosystem, progress, analysis
+        ),
         version_requirements(analysis["ecosystem"], package, version),
     )
     for name, requirement in declared.items():

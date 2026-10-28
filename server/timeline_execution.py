@@ -26,7 +26,15 @@ from contree_sdk.auth import IAMAuth
 from contree_sdk.config import ContreeConfig
 from pydantic import BaseModel
 
-from server.config import DATA, ENV, KEY, MODEL, BoundaryError, safe_error
+from server.config import (
+    DATA,
+    ENV,
+    KEY,
+    MODEL,
+    BoundaryError,
+    repository_url,
+    safe_error,
+)
 
 BASE = "https://api.tokenfactory.nebius.com/sandboxes"
 IMAGES = {
@@ -175,10 +183,74 @@ class Sandbox:
         }
 
     async def project(
-        self, path: Path, ecosystem: str, progress: Callable[[str], None] | None = None
+        self,
+        path: Path,
+        ecosystem: str,
+        progress: Callable[[str], None] | None = None,
+        source: dict | None = None,
     ) -> str:
         if ecosystem not in IMAGES:
             raise BoundaryError(f"Unsupported Sandbox ecosystem: {ecosystem}.")
+        if source and source.get("source_preparation") == "github_commit":
+            from server.time_machine import SKIP_DIRS, SKIP_FILES
+
+            try:
+                url = repository_url(source["source_url"])
+                revision = source["source_revision"]
+                if not re.fullmatch(r"[0-9a-f]{40,64}", revision):
+                    raise ValueError("Invalid Git revision.")
+            except (ValueError, KeyError, TypeError):
+                raise BoundaryError(
+                    "Invalid saved GitHub source or revision."
+                ) from None
+            if progress:
+                progress("image")
+            base = await self.sdk.images.oci(IMAGES[ecosystem], timeout=600)
+            image = str(base.uuid) if base.uuid else f"tag:{base.tag}"
+            if progress:
+                progress("cloning")
+            cleanup = f"""import os,shutil
+from pathlib import Path
+root=Path('/work/project')
+skip_dirs={sorted(SKIP_DIRS)!r}
+skip_files={sorted(SKIP_FILES)!r}
+for base,dirs,files in os.walk(root,topdown=True,followlinks=False):
+    base=Path(base)
+    for name in list(dirs):
+        item=base/name
+        if item.is_symlink():
+            item.unlink(); dirs.remove(name)
+        elif name in skip_dirs:
+            shutil.rmtree(item); dirs.remove(name)
+    for name in files:
+        item=base/name
+        if item.is_symlink() or name.startswith('.env') or name in skip_files or name.endswith(('.pem','.key','.p12','.pfx')):
+            item.unlink()
+"""
+            script = (
+                "set -eu\n"
+                "if ! command -v git >/dev/null || ! command -v python3 >/dev/null; then apt-get update -qq && apt-get install -y -qq git python3; fi\n"
+                "mkdir -p /work/project && cd /work/project\n"
+                "git init -q && git remote add origin " + shlex.quote(url) + "\n"
+                "GIT_TERMINAL_PROMPT=0 git -c credential.helper= fetch --depth=1 origin "
+                + shlex.quote(revision)
+                + "\n"
+                "git checkout -q --detach FETCH_HEAD\n"
+                'test "$(git rev-parse HEAD)" = ' + shlex.quote(revision) + "\n"
+                "python3 -c " + shlex.quote(cleanup)
+            )
+            result = await self.run(
+                image, script, cwd="/", network=True, save=True, timeout=600
+            )
+            if (
+                result["exit_code"] != 0
+                or result.get("timed_out")
+                or not result["image_id"]
+            ):
+                raise BoundaryError(
+                    "Could not fetch and prepare the recorded GitHub commit in the Sandbox."
+                )
+            return result["image_id"]
         if progress:
             progress("uploading")
         uploaded = await self.upload(await asyncio.to_thread(_archive, path))
@@ -214,10 +286,15 @@ async def execute_snapshot(
     script: str,
     ecosystem: str,
     progress: Callable[[str], None] | None = None,
+    source: dict | None = None,
 ) -> dict:
     """Run resolver commands remotely, without touching the user's source tree."""
     box = Sandbox()
-    image = await box.project(path, ecosystem, progress)
+    image = (
+        await box.project(path, ecosystem, progress, source)
+        if source and source.get("source_preparation") == "github_commit"
+        else await box.project(path, ecosystem, progress)
+    )
     if progress:
         progress("resolving")
     return await box.run(image, script, network=True, timeout=300)
@@ -522,6 +599,10 @@ class TimelineRuns:
         from server.time_machine import get_analysis, snapshot_path
 
         analysis = get_analysis(analysis_id)
+        if analysis.get("manager") == "bun":
+            raise BoundaryError(
+                "Sandbox experiments for Bun projects are not supported."
+            )
         match = next((p for p in analysis["packages"] if p["name"] == package), None)
         if (
             not match
@@ -654,7 +735,11 @@ class TimelineRuns:
             run["status"] = "running"
             self._save(run)
             box = Sandbox()
-            common = await box.project(path, analysis["ecosystem"], progress)
+            common = (
+                await box.project(path, analysis["ecosystem"], progress, analysis)
+                if analysis.get("source_preparation") == "github_commit"
+                else await box.project(path, analysis["ecosystem"], progress)
+            )
             run["shared_image_id"] = common
             self._save(run)
             bootstrap = "set -e; command -v git >/dev/null || (apt-get update -qq && apt-get install -y -qq git); git init -q && printf 'node_modules/\\n.venv/\\n__pycache__/\\n*.pyc\\n' >> .git/info/exclude && git config user.email oriclus@localhost && git config user.name Oriclus && git add --all && git commit -qm 'Snapshot' --allow-empty && "

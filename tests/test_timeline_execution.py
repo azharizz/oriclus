@@ -7,6 +7,7 @@ from unittest.mock import patch
 
 import httpx
 
+from server.config import BoundaryError
 from server.timeline_execution import (
     Sandbox,
     TimelineRuns,
@@ -301,6 +302,38 @@ class ExecutionTests(unittest.TestCase):
                 self.assertEqual(image, "snapshot")
                 self.assertEqual(stages, ["uploading", "image", "checkpoint"])
                 self.assertFalse(box.run.call_args.kwargs["network"])
+
+        asyncio.run(check())
+
+    def test_github_project_fetches_recorded_revision_and_excludes_upload(self):
+        from types import SimpleNamespace
+        from unittest.mock import AsyncMock
+
+        async def check():
+            box = Sandbox.__new__(Sandbox)
+            box.upload = AsyncMock()
+            box.sdk = SimpleNamespace(
+                images=SimpleNamespace(
+                    oci=AsyncMock(return_value=SimpleNamespace(uuid="base", tag=None))
+                )
+            )
+            box.run = AsyncMock(return_value={"exit_code": 0, "image_id": "snapshot"})
+            source = {
+                "source_preparation": "github_commit",
+                "source_url": "https://github.com/example/project",
+                "source_revision": "a" * 40,
+            }
+            stages = []
+            result = await box.project(Path("/tmp"), "python", stages.append, source)
+            self.assertEqual(result, "snapshot")
+            self.assertEqual(stages, ["image", "cloning"])
+            self.assertTrue(box.run.call_args.kwargs["network"])
+            self.assertTrue(box.run.call_args.kwargs["save"])
+            self.assertIn(source["source_revision"], box.run.call_args.args[1])
+            box.upload.assert_not_called()
+            source["source_url"] = "https://example.com/private"
+            with self.assertRaises(BoundaryError):
+                await box.project(Path("/tmp"), "python", None, source)
 
         asyncio.run(check())
 

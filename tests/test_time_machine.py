@@ -80,8 +80,84 @@ class SnapshotTests(unittest.TestCase):
         with self.assertRaises(BoundaryError):
             time_machine.snapshot_path("../../secret")
 
+    def test_bun_is_not_misidentified_as_npm(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp)
+            (path / "package.json").write_text('{"dependencies":{"demo":"^1"}}')
+            (path / "bun.lock").write_text("")
+            manager, packages, warnings = time_machine._node_dependencies(path)
+            self.assertEqual(manager, "bun")
+            self.assertEqual(packages[0]["name"], "demo")
+            self.assertTrue(any("not supported" in warning for warning in warnings))
+            with self.assertRaisesRegex(BoundaryError, "not available"):
+                time_machine.candidate_script(
+                    {
+                        "manager": manager,
+                        "packages": [
+                            {**packages[0], "releases": [{"version": "1.0.0"}]}
+                        ],
+                    },
+                    "demo",
+                    "1.0.0",
+                )
+
 
 class AnalyzeTests(unittest.IsolatedAsyncioTestCase):
+    async def test_github_fetches_only_regular_manifest_files_at_recorded_revision(
+        self,
+    ):
+        import httpx
+
+        revision, tree = "a" * 40, "b" * 40
+        requests = []
+
+        def respond(request):
+            requests.append(str(request.url))
+            if request.url.path.endswith("/commits/HEAD"):
+                return httpx.Response(
+                    200, json={"sha": revision, "commit": {"tree": {"sha": tree}}}
+                )
+            if request.url.path.endswith(f"/git/trees/{tree}"):
+                return httpx.Response(
+                    200,
+                    json={
+                        "tree": [
+                            {
+                                "path": "package.json",
+                                "mode": "100644",
+                                "type": "blob",
+                                "size": 30,
+                            },
+                            {
+                                "path": "requirements.txt",
+                                "mode": "120000",
+                                "type": "blob",
+                                "size": 7,
+                            },
+                            {
+                                "path": "secret.txt",
+                                "mode": "100644",
+                                "type": "blob",
+                                "size": 20,
+                            },
+                        ]
+                    },
+                )
+            return httpx.Response(200, text='{"dependencies":{"demo":"^1"}}')
+
+        client = httpx.AsyncClient(transport=httpx.MockTransport(respond))
+        with (
+            tempfile.TemporaryDirectory() as tmp,
+            patch.object(time_machine.httpx, "AsyncClient", return_value=client),
+        ):
+            destination = Path(tmp) / "source"
+            result = await time_machine._github_manifests(
+                "https://github.com/example/demo", destination
+            )
+            self.assertEqual(result, revision)
+            self.assertEqual([p.name for p in destination.iterdir()], ["package.json"])
+            self.assertTrue(requests[-1].endswith(f"/{revision}/package.json"))
+
     async def test_pinned_registry_relationships_are_not_claimed_as_installed(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -115,9 +191,11 @@ class AnalyzeTests(unittest.IsolatedAsyncioTestCase):
             project = root / "repo"
             project.mkdir()
             (project / "package.json").write_text('{"dependencies":{"demo":"^1"}}')
+            (project / "source.js").write_text("console.log('application source');")
             subprocess.run(["git", "init", "-q", str(project)], check=True)
             subprocess.run(
-                ["git", "-C", str(project), "add", "package.json"], check=True
+                ["git", "-C", str(project), "add", "package.json", "source.js"],
+                check=True,
             )
             subprocess.run(
                 [
@@ -141,15 +219,32 @@ class AnalyzeTests(unittest.IsolatedAsyncioTestCase):
             async def releases(_client, _package, _ecosystem, _limiter):
                 pass
 
+            async def manifests(_url, destination):
+                destination.mkdir()
+                (destination / "package.json").write_bytes(
+                    subprocess.check_output(
+                        ["git", "-C", str(project), "show", f"{revision}:package.json"]
+                    )
+                )
+                return revision
+
             with (
                 patch.object(time_machine, "TIMELINES", root / "history"),
                 patch.object(time_machine, "repository_url", return_value=str(project)),
+                patch.object(time_machine, "_github_manifests", manifests),
                 patch.object(time_machine, "_releases", releases),
             ):
                 result = await time_machine.analyze(
                     "github", "https://github.com/example/demo"
                 )
                 self.assertEqual(result["source_revision"], revision)
+                self.assertEqual(result["source_preparation"], "github_commit")
+                self.assertFalse(
+                    (time_machine.snapshot_path(result["id"]) / "source.js").exists()
+                )
+                self.assertTrue(
+                    (time_machine.snapshot_path(result["id"]) / "package.json").exists()
+                )
                 self.assertEqual(
                     time_machine.get_analysis(result["id"])["source_revision"], revision
                 )
