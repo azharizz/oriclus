@@ -2,6 +2,53 @@
 
 Explore dependency release histories, resolve candidate upgrades, and test them in branchable Nebius Sandboxes. Oriclus is a local, single-operator workspace. A version that resolves is not necessarily tested; passing selected tests does not guarantee compatibility.
 
+## What Oriclus does
+
+**Oriclus** combines *origo* and *cyclus*: trace dependency changes from an origin through repeated experiments. Its goal is to help developers answer: **“Which dependency versions work together with my project and its tests?”**
+
+A package manager determines whether declared requirements can be resolved. Oriclus uses that manager, then adds a release timeline, isolated experiments, research, and evidence. It does not replace the package manager or prove that untested behavior is compatible.
+
+## Feature inventory
+
+| Feature | Available today | Scope and evidence |
+| --- | --- | --- |
+| Project discovery | Analyze a local project or a public GitHub repository, optionally selecting a standalone subdirectory. GitHub analyses record the default-branch commit. | Shared monorepo workspaces and private GitHub access are not fully supported. Local and Sandbox data limits are described below. |
+| Shared release timeline | Show direct dependencies and related entries on a horizontally scrollable publication-date axis, with year and quarter/month navigation, zoom, search, paging, keyboard selection, and hover/focus details. | Release dates show availability, not compatibility. Releases without dates remain accessible in a list. Registry-declared relationships may be optional or uninstalled. |
+| Native package-manager resolution | Select a release, resolve a candidate set in a Sandbox with the project's package manager, and inspect selected versions, requirement ranges, sources, and declared connections. | A resolved set is **not tested**. Missing metadata, conflicts, and inconclusive results remain visible. Connections are not proof of passing tests. |
+| Multi-dependency experiments | Select up to five dependencies, up to five versions each, and at most 12 combinations; optionally require a selected version as the goal. Run the same selected command on a baseline and up to three independent candidate Sandbox branches concurrently. | Candidate pass/fail is recorded only when the baseline passes; resolution/install failures and timeouts remain inconclusive. Test execution is requested without Sandbox network access. |
+| Show, guide, and use | Compare recorded combinations; select **Review** to focus their exact versions on the timeline and inspect the command, test results, and repairs. Available versions that did not participate remain distinct. | Results apply to the **entire combination**, test command, and environment. A completed run can suggest all tied passing options with the fewest selected-version changes when current versions or exact pins are known and the optional goal is met. No global optimum is implied. |
+| Nemotron investigation and source repair | Show actual agent activity and recorded model plans, messages, tool actions and outcomes when available. Nemotron can investigate qualifying failures and propose a source patch; Oriclus independently reruns the original tests from a fresh candidate branch. | Plans and explanations are advisory. A verified repair passed only the recorded tests; failed, rejected and unavailable repairs stay visible. Rust source repair is disabled because tests can be embedded in source files. |
+| Dependency-file repair | When enabled after an unsuccessful source repair, Nemotron can propose up to two changes to other direct dependencies. Oriclus validates them, generates allowed manifest/lockfile changes using the native manager, and independently reinstalls and retests. | Supports bounded forms for pip, uv, Poetry, npm, Yarn and pnpm; pip needs root `requirements.txt`. Complex project forms may be unavailable. Bun, Go and Cargo dependency-file repair is not supported. Proposals are never applied to the user's project automatically. |
+| Patch review | Open recorded source or dependency patches, inspect their verification evidence, and download patches for manual review. | A patch that passed tests still needs review; validate it against your checkout before applying. |
+| What's New and Tavily | Save a cross-project feed grouped by dependency; manually refresh filtered libraries with progress and cancellation, or research a particular release to find changes, useful features and migration considerations. Link sources and show saved release research on the timeline; relevant saved evidence may be supplied to the agent. | Public search results and model summaries are advisory and may be stale or incomplete. Refresh is user initiated, not an automatic monitor; package names may be sensitive. |
+| Experiment history and progress | Show actual preparation, testing and agent stages, support cancellation, and reopen saved Time Machine results. History searches and filters the most recent 100 local experiments. | Older records may lack agent decisions or timing. Retired Docker rehearsal records are preserved separately in the legacy API, not mixed into Time Machine results. |
+| Metrics | Visualize experiment completion, candidate outcomes, time to first conclusive result, and repair verification from local records, with denominators. | These are descriptive local metrics, not evidence of user productivity, accuracy, or superiority over another tool. Controlled evaluations and incomplete timing are handled explicitly. |
+| Reproducible uv comparison | A script compares a bounded pip project and selected dependency versions with a uv-only Sandbox workflow and Oriclus, printing trials and denominators. | The uv-only path does not perform AI repair; repair verification is not applicable. Workflows and environments are not identical, no comparison file is written, and a repeatable multi-dependency uv/CI comparison remains open work. |
+
+## Who it helps
+
+- **Open-source contributors and maintainers:** investigate selected dependency changes and share test evidence and cited release information.
+- **Individual developers:** explore upgrades and verify selected tests before changing their project.
+- **Application teams:** reproduce an investigation in isolated Sandboxes and review proposed patches. Check the data-handling section before uploading company code.
+- **Platform teams:** use it on individual projects today; organization-wide private-repository discovery, service impact maps, and access controls remain future work.
+
+See [who benefits](docs/who-benefits.md) for examples and limitations.
+
+## Recorded verification
+
+These are bounded observations, not aggregate success rates or production-readiness claims. Commands, versions, caveats and local run IDs are documented in [evaluation cases](docs/evaluation-cases.md).
+
+| Scenario | Observed result |
+| --- | --- |
+| Synthetic Flask/SQLAlchemy five-dependency matrix | Four combinations resolved with pip. The baseline combination passed; three upgrade combinations failed the original test, and each proposed Nemotron source patch passed independent verification. This is a constructed single-test example. |
+| Real `microsoft/license-checker-webpack-plugin` npm matrix | Four combinations resolved. Two minimatch 3 combinations passed; two minimatch 9 combinations failed an **additional focused probe** after the original suite and passed after independent patch verification. The original 24 tests alone did not catch that incompatibility. |
+| HTTPX/Starlette reproducer | HTTPX 0.28.0 exposed a failure. In one direct live dependency-repair evaluation, a Starlette 0.37.2 proposal passed a fresh independent test after a 0.37.0 proposal failed. A separate full-workflow evaluation did not produce a verified repair. |
+| Bun, Go and Cargo examples | Each small constructed project passed its baseline and four two-dependency combinations in real Sandboxes. These runs did not demonstrate a failing candidate or AI repair for those managers. |
+| Large and public repositories | Metabase root manifests and a 455 MiB prepared Sandbox source were inspected; its application tests were **not** run. Flask and FastAPI repositories passed focused probes, not their full original test suites. A standalone GitHub subdirectory example also produced both a passing and a failing candidate. |
+| Automated and interface checks | The latest recorded check passed 69 backend tests, seven decision tests, Ruff, frontend formatting and production build. The timeline review flow was checked in a browser with saved Bun and JavaScript experiments; this did not start new Sandbox runs. |
+
+Additional live small examples exercised native pip, uv, Poetry, npm, Yarn and pnpm resolution and tests, a resolver conflict, cancellation, and independent patch verification. Individual model outcomes vary; no maintainer feedback or reliable user-time savings have been established.
+
 ## Get started
 
 Requirements: Python 3.12+, [uv](https://docs.astral.sh/uv/), Node.js 22.12+, npm, and access to Nebius Token Factory Sandboxes. Existing Docker history remains stored locally and available through the legacy API.
@@ -30,7 +77,7 @@ Open http://127.0.0.1:8787. The API controls code execution and is designed for 
 
 ## Time machine
 
-Choose a public GitHub repository or an absolute local project directory. For GitHub, Oriclus records the default branch's commit and downloads only supported root manifests for exploration. Resolution and experiments fetch that exact commit inside Nebius Sandboxes. For local projects, Oriclus snapshots files without modifying the source. It reads the manifests and fetches release metadata from public registries. The timeline aligns releases on publication dates; rows include direct dependencies and related entries from lockfiles, resolved candidates, and registry declarations for up to 25 exactly pinned direct dependencies. Up to 300 dependencies are loaded, searchable by name and displayed in pages of 20 timeline rows; connections are drawn only for endpoints on the current page. Registry declarations can include optional dependencies and do not prove installation; unpinned releases require resolution for additional related entries. Missing dates and metadata are shown as unknown. Choose a release to resolve a candidate set and inspect declared requirements. A resolution is not a test result.
+Choose a public GitHub repository or an absolute local project directory. For GitHub, Oriclus records the default branch's commit and downloads only supported manifests in the selected directory for exploration. Resolution and experiments fetch that exact commit inside Nebius Sandboxes. For local projects, Oriclus snapshots files without modifying the source. It reads the manifests and fetches release metadata from public registries. The timeline aligns releases on publication dates; rows include direct dependencies and related entries from lockfiles, resolved candidates, and registry declarations for up to 25 exactly pinned direct dependencies. Up to 300 dependencies are loaded, searchable by name and displayed in pages of 20 timeline rows; connections are drawn only for endpoints on the current page. Registry declarations can include optional dependencies and do not prove installation; unpinned releases require resolution for additional related entries. Missing dates and metadata are shown as unknown. Choose a release to resolve a candidate set and inspect declared requirements. A resolution is not a test result.
 
 To run an experiment, add releases from up to five dependencies, optionally choose a required release as the upgrade goal, review the test command, and choose **Run Sandbox tests**. Each dependency can have up to five selected releases and the Cartesian product is limited to 12 combinations. Oriclus prepares the project once, checks the baseline, and runs up to three independent candidate branches concurrently with the same selected tests offline. The comparison lists resolution, test, and repair outcomes per combination; a resolution failure or installation error is inconclusive, not a test failure. When current versions or exact manifest pins are known, the interface suggests qualifying combinations with the fewest changes to selected dependencies; this is not a global optimum. A passing baseline is required to classify a candidate as passed or failed.
 
@@ -49,9 +96,9 @@ Reproducible examples are available:
 - `examples/timeline-go`: Go modules example, `go test ./...`.
 - `examples/timeline-rust`: Cargo example, `cargo test --offline --locked`.
 
-See [evaluation cases](docs/evaluation-cases.md) for a real JavaScript repository, a resolver conflict and actual results, including failures. The [demonstration script](docs/demo-script.md) separates recorded results from live execution. The [submission checklist](docs/submission-checklist.md) and [maintainer evaluation guide](docs/maintainer-evaluation.md) identify outstanding work without inventing user feedback.
+See [evaluation cases](docs/evaluation-cases.md) for a real JavaScript repository, a resolver conflict and actual results, including failures. The [demonstration script](docs/demo-script.md) separates recorded results from live execution. The [submission checklist](docs/submission-checklist.md) and [maintainer evaluation guide](docs/maintainer-evaluation.md) identify outstanding work without inventing user feedback. The repository is now public; the checklist's earlier private-visibility note is historical.
 
-These examples demonstrate a breaking change; they are not claims about every application using those packages. Resolution and tests use registry access and Sandbox compute and can consume credits.
+Some examples demonstrate breaking changes; others demonstrate passing combinations. They are not claims about every application using those packages. Resolution and tests use registry access and Sandbox compute and can consume credits.
 
 ## What's New and metrics
 
@@ -67,7 +114,7 @@ Go modules (`go.mod`) and Rust Cargo (`Cargo.toml`, optionally `Cargo.lock`) are
 
 For a monorepo, use **Use a project subdirectory** to inspect and test one standalone Python, JavaScript, Go or Rust project. Parent files, sibling packages and shared workspace configuration are excluded from the saved project, so projects depending on them may fail; selecting a directory is not full workspace support. GitHub exploration reads the selected directory's manifests at the recorded commit; Sandbox preparation temporarily fetches the full repository before retaining the selected directory. Local projects snapshot only that directory, subject to the limits below.
 
-Native resolver and install commands run in isolated Sandbox copies. Check UI warnings for unsupported requirements, dynamic metadata, duplicate package instances and incomplete lockfile details. Complex workspaces, private registries, package-manager-specific configuration, external services and unusual scripts may require additional configuration. Release history and selected tests are bounded: Oriclus does not infer outcomes for untested releases or claim the globally first breaking version.
+Native resolver and install commands run in isolated Sandbox copies. Check UI warnings for unsupported requirements, dynamic metadata, duplicate package instances and incomplete lockfile details. Complex workspaces, private registries, package-manager-specific configuration, external services and unusual scripts may require additional configuration. Release history and selected tests are bounded: Oriclus does not infer outcomes for untested releases or claim the globally first breaking version. It does not automatically identify the first observed breaking release across a tested range.
 
 ## Data and security
 
