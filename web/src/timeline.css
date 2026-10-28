@@ -1030,3 +1030,115 @@
 .tm-tooltip small {
   color: #c0c0ca;
 }
+
+.tm-decision {
+  margin: 18px 0;
+  padding: 18px 20px;
+  border: 1px solid #46464c;
+  border-radius: 12px;
+  background: var(--header);
+}
+.tm-decision-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: start;
+  gap: 16px;
+}
+.tm-decision-head h3,
+.tm-comparison h3 {
+  font-size: 17px;
+  margin: 0 0 5px;
+}
+.tm-decision-head p,
+.tm-recommendation p {
+  color: var(--muted);
+  margin: 5px 0;
+  overflow-wrap: anywhere;
+}
+.tm-decision-head button,
+.tm-review-button,
+.tm-decision-actions button {
+  border: 1px solid #46464c;
+  background: transparent;
+  color: var(--ink);
+  border-radius: 8px;
+  padding: 6px 10px;
+  text-align: left;
+}
+.tm-decision-versions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 0;
+  margin: 15px 0;
+  list-style: none;
+}
+.tm-decision-versions li {
+  padding: 6px 9px;
+  border: 1px solid #46464c;
+  border-radius: 6px;
+  overflow-wrap: anywhere;
+}
+.tm-decision-versions small {
+  display: block;
+  color: var(--muted);
+}
+.tm-decision .tm-result pre {
+  max-height: 280px;
+}
+.tm-recommendation {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 14px;
+  margin: 16px 0;
+}
+.tm-decision-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+.tm-review-button[aria-pressed="true"],
+.tm-comparison tr.is-active {
+  background: var(--header);
+}
+.tm-key.experiment,
+.tm-key.decision {
+  background: transparent;
+  border: 1px solid #aaa4ff;
+  width: 10px;
+  height: 10px;
+}
+.tm-key.decision {
+  background: #aaa4ff;
+}
+.tm-release.in-experiment::after {
+  content: "";
+  position: absolute;
+  inset: -5px;
+  border: 1px solid #aaa4ff;
+  border-radius: 50%;
+  pointer-events: none;
+}
+.tm-release.in-decision {
+  background: #aaa4ff;
+  z-index: 3;
+}
+.tm-release.in-decision::after {
+  inset: -7px;
+  border-width: 2px;
+}
+.tm-release.in-decision.decision-passed::after {
+  border-color: var(--green);
+}
+.tm-release.in-decision.decision-failed::after {
+  border-color: var(--red);
+}
+.tm-release.in-decision.decision-repair::after {
+  border-color: #f0c879;
+}
+@media (max-width: 640px) {
+  .tm-decision-head {
+    flex-direction: column;
+  }
+}

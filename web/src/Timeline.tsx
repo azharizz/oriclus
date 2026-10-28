@@ -18,6 +18,11 @@ import {
 import { api } from "./api";
 import ActivityVisual, { type Activity } from "./ActivityVisual";
 import { Pager } from "./ui";
+import {
+  experimentOptions,
+  recommendOptions,
+  type DecisionOption,
+} from "./decision";
 import "./timeline.css";
 
 type Release = { version: string; date: string | null };
@@ -199,6 +204,9 @@ export default function Timeline({
   initialRunId?: string | null;
 }) {
   const scrollRef = useRef<HTMLDivElement>(null);
+  const timelineRef = useRef<HTMLDivElement>(null);
+  const [decisionKey, setDecisionKey] = useState<string | null>(null);
+  const [focusDecision, setFocusDecision] = useState(false);
   const [source, setSource] = useState<"github" | "local">("github");
   const [location, setLocation] = useState("");
   const [directory, setDirectory] = useState("");
@@ -381,6 +389,31 @@ export default function Timeline({
       ),
     ];
   }, [analysis, resolution.data]);
+  const activeExperiment =
+    run.data?.analysis_id === analysis?.id ? run.data : undefined;
+  const options = activeExperiment ? experimentOptions(activeExperiment) : [];
+  const selectedDecision = options.find((option) => option.key === decisionKey);
+  const decisionResult =
+    selectedDecision && activeExperiment?.results[selectedDecision.resultIndex];
+  const recommendation = activeExperiment
+    ? recommendOptions(
+        activeExperiment,
+        analysis?.packages || [],
+        options,
+        analysis?.manager,
+      )
+    : { eligible: [], recommended: [], changes: null };
+  const decisionNames = new Set(
+    Object.keys(selectedDecision?.combination || {}).map((name) =>
+      dependencyKey(name, analysis?.ecosystem),
+    ),
+  );
+
+  useEffect(() => {
+    setDecisionKey(null);
+    setFocusDecision(false);
+  }, [runId, analysis?.id]);
+
   const dates = useMemo(
     () =>
       packages.flatMap((pkg) =>
@@ -424,7 +457,13 @@ export default function Timeline({
       : `Q${month / 3 + 1}`;
   const filteredPackages = packages.filter(
     (pkg) =>
-      (pkg.direct || showTransitive) &&
+      (pkg.direct ||
+        showTransitive ||
+        (focusDecision &&
+          decisionNames.has(dependencyKey(pkg.name, analysis?.ecosystem)))) &&
+      (!focusDecision ||
+        !selectedDecision ||
+        decisionNames.has(dependencyKey(pkg.name, analysis?.ecosystem))) &&
       pkg.name.toLowerCase().includes(dependencyFilter.trim().toLowerCase()),
   );
   const activeRowPage = Math.min(
@@ -460,7 +499,7 @@ export default function Timeline({
       : { x: position(date), y: index * ROW_HEIGHT + ROW_HEIGHT / 2 };
   };
   const resolvedEdges =
-    resolution.data?.status === "resolved"
+    !selectedDecision && resolution.data?.status === "resolved"
       ? (resolution.data.edges || []).flatMap((edge) => {
           const source = resolvePoint(edge.source),
             target = resolvePoint(edge.target);
@@ -478,36 +517,6 @@ export default function Timeline({
     (count, versions) => count * versions.length,
     queued.length ? 1 : 0,
   );
-  const passingChoices = (run.data?.results || [])
-    .filter(
-      (result) =>
-        result.combination &&
-        (result.status === "passed" || result.repair?.status === "verified") &&
-        (!run.data?.goal ||
-          result.combination[run.data.goal.package] === run.data.goal.version),
-    )
-    .map((result) => {
-      const entries = Object.entries(result.combination!);
-      const currents = entries.map(([name]) => {
-        const pkg = packages.find((item) => item.name === name);
-        return (
-          pkg?.current ||
-          pkg?.requirement.match(/^==([A-Za-z0-9][A-Za-z0-9._+!-]*)$/)?.[1]
-        );
-      });
-      return {
-        result,
-        changes: currents.every(Boolean)
-          ? entries.filter(([, version], index) => currents[index] !== version)
-              .length
-          : null,
-      };
-    });
-  const fewestChanges =
-    passingChoices.length &&
-    passingChoices.every((item) => item.changes !== null)
-      ? Math.min(...passingChoices.map((item) => item.changes!))
-      : null;
   const undated =
     selectedPackage?.releases.filter(
       (release) => dateValue(release.date) === null,
@@ -553,6 +562,38 @@ export default function Timeline({
     } finally {
       setLoading(false);
     }
+  }
+
+  function inspectDecision(option: DecisionOption) {
+    setDecisionKey(option.key);
+    setFocusDecision(true);
+    setDependencyFilter("");
+    setRowPage(0);
+    setSelection(null);
+    const firstDate = Object.entries(option.combination)
+      .map(([name, version]) =>
+        dateValue(
+          packages
+            .find(
+              (pkg) =>
+                dependencyKey(pkg.name, analysis?.ecosystem) ===
+                dependencyKey(name, analysis?.ecosystem),
+            )
+            ?.releases.find((release) => release.version === version)?.date ||
+            null,
+        ),
+      )
+      .find((value) => value !== null);
+    requestAnimationFrame(() => {
+      timelineRef.current?.scrollIntoView({ block: "start" });
+      if (firstDate != null && scrollRef.current)
+        scrollRef.current.scrollTo({
+          left: Math.max(
+            0,
+            210 + position(firstDate) - scrollRef.current.clientWidth / 2,
+          ),
+        });
+    });
   }
 
   function choose(name: string, version: string) {
@@ -849,7 +890,7 @@ export default function Timeline({
               ))}
             </div>
           )}
-          <div className="tm-workspace-head">
+          <div className="tm-workspace-head" ref={timelineRef}>
             <div>
               <span className="tm-step">02</span>
               <h2>Release timeline</h2>
@@ -926,6 +967,93 @@ export default function Timeline({
               </label>
             </div>
           </div>
+          {selectedDecision && decisionResult && activeExperiment && (
+            <section
+              className="tm-decision"
+              aria-label="Selected combination evidence"
+              aria-live="polite"
+            >
+              <div className="tm-decision-head">
+                <div>
+                  <h3>Selected experiment combination</h3>
+                  <p>
+                    {selectedDecision.outcome === "passed"
+                      ? "Tests passed"
+                      : selectedDecision.outcome === "repair"
+                        ? "Passed after a verified repair"
+                        : selectedDecision.outcome === "failed"
+                          ? "Tests failed"
+                          : "Not tested or inconclusive"}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setDecisionKey(null);
+                    setFocusDecision(false);
+                  }}
+                >
+                  Clear selection
+                </button>
+              </div>
+              <ul className="tm-decision-versions">
+                {Object.entries(selectedDecision.combination).map(
+                  ([name, version]) => {
+                    const pkg = packages.find(
+                      (item) =>
+                        dependencyKey(item.name, analysis.ecosystem) ===
+                        dependencyKey(name, analysis.ecosystem),
+                    );
+                    const release = pkg?.releases.find(
+                      (item) => item.version === version,
+                    );
+                    return (
+                      <li key={name}>
+                        <strong>{name}</strong> <span>{version}</span>
+                        {!release && <small>Not on timeline</small>}
+                        {release && !release.date && (
+                          <small>Date unknown</small>
+                        )}
+                      </li>
+                    );
+                  },
+                )}
+              </ul>
+              <label className="tm-check">
+                <input
+                  type="checkbox"
+                  checked={focusDecision}
+                  onChange={(event) => {
+                    setFocusDecision(event.target.checked);
+                    setRowPage(0);
+                  }}
+                />{" "}
+                Focus on this combination
+              </label>
+              <p className="tm-limit">
+                This result applies to the complete combination and the recorded
+                test command. Highlighting a version does not mean it passes
+                with other versions.
+              </p>
+              <details className="tm-command">
+                <summary>View test command</summary>
+                <code>{activeExperiment.test_command}</code>
+              </details>
+              <ResultCard
+                key={`${activeExperiment.id}-${selectedDecision.key}`}
+                title="Review test evidence and proposed patches"
+                result={decisionResult}
+              />
+              {selectedDecision.dependencyRepairIndex !== undefined && (
+                <p className="tm-limit">
+                  This selection shows the versions from verified dependency
+                  proposal {selectedDecision.dependencyRepairIndex + 1}. Open
+                  that proposal above to review its patch and independent
+                  verification.
+                </p>
+              )}
+            </section>
+          )}
           <div className="tm-legend">
             <span>
               <i className="tm-key current" /> Current
@@ -942,8 +1070,18 @@ export default function Timeline({
               </span>
             )}
             <span>
-              <i className="tm-key release" /> Available release
+              <i className="tm-key release" /> Available, not in this experiment
             </span>
+            {options.length > 0 && (
+              <span>
+                <i className="tm-key experiment" /> Appears in an experiment
+              </span>
+            )}
+            {selectedDecision && (
+              <span>
+                <i className="tm-key decision" /> Selected combination
+              </span>
+            )}
             <span>
               <i className="tm-key research" /> Research available
             </span>
@@ -1111,18 +1249,37 @@ export default function Timeline({
                           const hasResearch = researched.has(
                             JSON.stringify([pkg.name, release.version]),
                           );
-                          const tested =
-                            run.data?.package === pkg.name &&
-                            !run.data?.results?.some(
-                              (result) =>
-                                Object.keys(result.combination || {}).length >
-                                1,
-                            )
-                              ? run.data?.results?.find(
-                                  (result) =>
-                                    result.version === release.version,
-                                )
-                              : undefined;
+                          const inExperiment = options.some((option) =>
+                            Object.entries(option.combination).some(
+                              ([name, version]) =>
+                                dependencyKey(name, analysis?.ecosystem) ===
+                                  dependencyKey(
+                                    pkg.name,
+                                    analysis?.ecosystem,
+                                  ) && version === release.version,
+                            ),
+                          );
+                          const inDecision =
+                            !!selectedDecision &&
+                            Object.entries(selectedDecision.combination).some(
+                              ([name, version]) =>
+                                dependencyKey(name, analysis?.ecosystem) ===
+                                  dependencyKey(
+                                    pkg.name,
+                                    analysis?.ecosystem,
+                                  ) && version === release.version,
+                            );
+                          const evidenceStatus = inDecision
+                            ? selectedDecision.outcome === "passed"
+                              ? "Selected combination: tests passed"
+                              : selectedDecision.outcome === "repair"
+                                ? "Selected combination: passed after repair"
+                                : selectedDecision.outcome === "failed"
+                                  ? "Selected combination: tests failed"
+                                  : "Selected combination: inconclusive"
+                            : inExperiment
+                              ? "Appears in an experiment; outcomes depend on the full combination"
+                              : "Not tested in this experiment";
                           const showTip = (element: HTMLElement) => {
                             const rect = element.getBoundingClientRect();
                             setTip({
@@ -1140,11 +1297,7 @@ export default function Timeline({
                               name: pkg.name,
                               version: release.version,
                               date,
-                              status: tested
-                                ? resultLabel(tested.status || "inconclusive")
-                                : isResolved
-                                  ? "Resolver selected · not tested"
-                                  : "Not tested",
+                              status: evidenceStatus,
                               researched: hasResearch,
                             });
                           };
@@ -1163,10 +1316,10 @@ export default function Timeline({
                                   ? "release-tooltip"
                                   : undefined
                               }
-                              className={`tm-release ${isCurrent ? "is-current" : ""} ${isSelected ? "is-selected" : ""} ${isResolved ? "is-resolved" : ""} ${tested?.status === "passed" ? "is-tested-pass" : tested?.status === "failed" ? "is-tested-fail" : ""} ${hasResearch ? "has-research" : ""}`}
+                              className={`tm-release ${isCurrent ? "is-current" : ""} ${isSelected ? "is-selected" : ""} ${isResolved ? "is-resolved" : ""} ${inExperiment ? "in-experiment" : ""} ${inDecision ? `in-decision decision-${selectedDecision?.outcome}` : ""} ${hasResearch ? "has-research" : ""}`}
                               style={{ left: position(date) }}
                               key={`${release.version}-${index}`}
-                              aria-label={`${pkg.name} version ${release.version}, released ${new Date(date).toLocaleDateString()}${isCurrent ? ", current" : ""}${isResolved ? ", resolver selected" : ""}${hasResearch ? ", research available" : ""}${tested ? `, ${resultLabel(tested.status || "inconclusive")}` : ", not tested"}`}
+                              aria-label={`${pkg.name} version ${release.version}, released ${new Date(date).toLocaleDateString()}${isCurrent ? ", current" : ""}${isResolved ? ", resolver selected" : ""}${hasResearch ? ", research available" : ""}${`, ${evidenceStatus}`}`}
                               aria-pressed={isSelected}
                               onClick={() => choose(pkg.name, release.version)}
                             />
@@ -1795,121 +1948,148 @@ export default function Timeline({
                     {run.data.baseline && (
                       <ResultCard title="Baseline" result={run.data.baseline} />
                     )}
-                    {run.data.results.some(
-                      (result) =>
-                        result.combination &&
-                        Object.keys(result.combination).length > 1,
-                    ) && (
+                    {options.length > 0 && (
                       <div className="tm-comparison">
-                        <h3>Combination results</h3>
+                        <h3>Compare experiment combinations</h3>
                         <p className="tm-limit">
-                          Each row is one tested set. A passing result applies
-                          only to the selected command and environment.
+                          Select a row to highlight its exact versions and
+                          review evidence on the timeline. A result applies to
+                          the full combination and this test command.
                         </p>
-                        {fewestChanges !== null &&
-                          run.data.status === "completed" && (
-                            <p className="tm-limit">
-                              Suggested for fewest changes among selected
-                              dependencies, compared with known current versions
-                              or exact manifest pins:{" "}
-                              {passingChoices
-                                .filter(
-                                  (item) => item.changes === fewestChanges,
-                                )
-                                .map(
-                                  (item) =>
-                                    Object.entries(item.result.combination!)
+                        {run.data.status === "completed" &&
+                          recommendation.recommended.length > 0 && (
+                            <div className="tm-recommendation" role="status">
+                              <strong>
+                                Suggested: fewest selected dependency changes
+                              </strong>
+                              <p>
+                                {recommendation.changes} change(s) from known
+                                current versions or exact pins
+                                {run.data.goal
+                                  ? `, meeting the ${run.data.goal.package} ${run.data.goal.version} goal`
+                                  : ""}
+                                . Only passing combinations from this experiment
+                                are ranked; ties are shown.{" "}
+                                {recommendation.recommended.some(
+                                  (option) => option.outcome === "repair",
+                                ) &&
+                                  "A suggested option requires the verified patch."}
+                                {!run.data.goal &&
+                                  " No upgrade goal was set, so current versions can be suggested."}
+                              </p>
+                              <div className="tm-decision-actions">
+                                {recommendation.recommended.map((option) => (
+                                  <button
+                                    type="button"
+                                    key={option.key}
+                                    onClick={() => inspectDecision(option)}
+                                  >
+                                    Review{" "}
+                                    {Object.entries(option.combination)
                                       .map(
                                         ([name, version]) =>
                                           `${name} ${version}`,
                                       )
-                                      .join(" · ") +
-                                    (item.result.repair?.status ===
-                                      "verified" &&
-                                    item.result.status !== "passed"
-                                      ? " (requires verified patch)"
-                                      : ""),
-                                )
-                                .join("; ")}
-                              . This ranks only the selected, passing
-                              combinations
-                              {run.data.goal
-                                ? ` meeting the ${run.data.goal.package} ${run.data.goal.version} goal`
-                                : ""}
-                              .
+                                      .join(" · ")}
+                                    {option.outcome === "repair"
+                                      ? " · repair required"
+                                      : ""}
+                                  </button>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                        {run.data.status === "completed" &&
+                          recommendation.eligible.length > 0 &&
+                          recommendation.changes === null && (
+                            <p className="tm-limit">
+                              Passing options are available, but current
+                              versions are incomplete, so the fewest-changes
+                              recommendation is unavailable.
                             </p>
                           )}
                         {run.data.status === "completed" &&
-                          run.data.goal &&
-                          passingChoices.length === 0 && (
+                          recommendation.eligible.length === 0 && (
                             <p className="tm-limit">
-                              No tested combination met the upgrade goal with
-                              passing tests or a verified repair.
-                            </p>
-                          )}
-                        {run.data.status === "completed" &&
-                          fewestChanges === null &&
-                          passingChoices.length > 0 && (
-                            <p className="tm-limit">
-                              {passingChoices.length} tested combination(s)
-                              passed directly or with a verified patch
+                              No tested combination
                               {run.data.goal
-                                ? ` for the ${run.data.goal.package} ${run.data.goal.version} goal`
-                                : ""}
-                              . Current versions are incomplete, so Oriclus
-                              cannot rank by number of changes.
+                                ? " meeting the selected goal"
+                                : ""}{" "}
+                              passed directly or after a verified repair.
                             </p>
                           )}
+                        {run.data.status !== "completed" && (
+                          <p className="tm-limit">
+                            Recommendations appear after the experiment
+                            completes.
+                          </p>
+                        )}
                         <div className="tm-comparison-scroll">
                           <table>
                             <thead>
                               <tr>
                                 <th scope="col">Dependency versions</th>
                                 <th scope="col">Resolution</th>
-                                <th scope="col">Tests</th>
-                                <th scope="col">Repair</th>
+                                <th scope="col">Tests and repair</th>
+                                <th scope="col">Timeline</th>
                               </tr>
                             </thead>
                             <tbody>
-                              {run.data.results.map((result, index) => (
-                                <tr key={index}>
-                                  <td>
-                                    {Object.entries(result.combination || {})
-                                      .map(
-                                        ([name, version]) =>
-                                          `${name} ${version}`,
-                                      )
-                                      .join(" · ")}
-                                  </td>
-                                  <td>
-                                    {result.resolution_status === "succeeded"
-                                      ? "Succeeded"
-                                      : result.resolution_status
-                                        ? "Failed or inconclusive"
-                                        : "Pending"}
-                                  </td>
-                                  <td>
-                                    {resultLabel(
-                                      result.status || "inconclusive",
-                                    )}
-                                  </td>
-                                  <td>
-                                    {result.repair_pending
-                                      ? "Investigating"
-                                      : result.repair
-                                        ? resultLabel(result.repair.status)
-                                        : "Not attempted"}
-                                    {result.dependency_repair && (
-                                      <div>
-                                        Dependency proposal:{" "}
-                                        {resultLabel(
-                                          result.dependency_repair.status,
-                                        )}
-                                      </div>
-                                    )}
-                                  </td>
-                                </tr>
-                              ))}
+                              {options.map((option) => {
+                                const result =
+                                  run.data!.results[option.resultIndex];
+                                const label = Object.entries(option.combination)
+                                  .map(
+                                    ([name, version]) => `${name} ${version}`,
+                                  )
+                                  .join(" · ");
+                                return (
+                                  <tr
+                                    key={option.key}
+                                    className={
+                                      decisionKey === option.key
+                                        ? "is-active"
+                                        : ""
+                                    }
+                                  >
+                                    <td>{label}</td>
+                                    <td>
+                                      {result.resolution_status === "succeeded"
+                                        ? "Succeeded"
+                                        : result.resolution_status
+                                          ? "Failed or inconclusive"
+                                          : "Not recorded"}
+                                    </td>
+                                    <td>
+                                      {option.outcome === "passed"
+                                        ? "Tests passed"
+                                        : option.outcome === "repair"
+                                          ? option.dependencyRepairIndex !==
+                                            undefined
+                                            ? "Dependency patch verified"
+                                            : "Tests failed; source patch verified"
+                                          : option.outcome === "failed"
+                                            ? "Tests failed"
+                                            : "Not tested or inconclusive"}
+                                      {result.repair_pending &&
+                                        " · investigating"}
+                                    </td>
+                                    <td>
+                                      <button
+                                        type="button"
+                                        className="tm-review-button"
+                                        aria-pressed={
+                                          decisionKey === option.key
+                                        }
+                                        aria-label={`Review ${label} on timeline`}
+                                        onClick={() => inspectDecision(option)}
+                                      >
+                                        Review
+                                      </button>
+                                    </td>
+                                  </tr>
+                                );
+                              })}
                             </tbody>
                           </table>
                         </div>
@@ -2028,6 +2208,12 @@ function ResultCard({ title, result }: { title: string; result: Result }) {
             {result.repair.patch && (
               <details>
                 <summary>View proposed patch</summary>
+                <a
+                  href={`data:text/x-diff;charset=utf-8,${encodeURIComponent(result.repair.patch)}`}
+                  download="oriclus-source.patch"
+                >
+                  Download source patch
+                </a>
                 <pre>{result.repair.patch}</pre>
               </details>
             )}
@@ -2042,9 +2228,11 @@ function ResultCard({ title, result }: { title: string; result: Result }) {
             </p>
           </section>
         )}
-        {(
-          result.dependency_repairs ||
-          (result.dependency_repair ? [result.dependency_repair] : [])
+        {(result.dependency_repairs?.length
+          ? result.dependency_repairs
+          : result.dependency_repair
+            ? [result.dependency_repair]
+            : []
         ).map((proposal, index) => (
           <section className="tm-repair" key={index}>
             <h3>Dependency change proposal {index + 1}</h3>
@@ -2086,6 +2274,12 @@ function ResultCard({ title, result }: { title: string; result: Result }) {
             {proposal.patch && (
               <details>
                 <summary>View dependency and lockfile changes</summary>
+                <a
+                  href={`data:text/x-diff;charset=utf-8,${encodeURIComponent(proposal.patch)}`}
+                  download="oriclus-dependency.patch"
+                >
+                  Download dependency patch
+                </a>
                 <pre>{proposal.patch}</pre>
               </details>
             )}

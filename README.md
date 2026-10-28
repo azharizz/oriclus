@@ -34,6 +34,8 @@ Choose a public GitHub repository or an absolute local project directory. For Gi
 
 To run an experiment, add releases from up to five dependencies, optionally choose a required release as the upgrade goal, review the test command, and choose **Run Sandbox tests**. Each dependency can have up to five selected releases and the Cartesian product is limited to 12 combinations. Oriclus prepares the project once, checks the baseline, and runs up to three independent candidate branches concurrently with the same selected tests offline. The comparison lists resolution, test, and repair outcomes per combination; a resolution failure or installation error is inconclusive, not a test failure. When current versions or exact manifest pins are known, the interface suggests qualifying combinations with the fewest changes to selected dependencies; this is not a global optimum. A passing baseline is required to classify a candidate as passed or failed.
 
+After an experiment, choose **Review** beside a combination to focus the timeline on its exact versions and inspect the recorded test result, command, and any proposed repair. Versions appearing in an experiment are marked separately from other available releases; their outcomes apply to the full combination, not individual versions in isolation. A completed experiment may suggest all tied passing options with the fewest changes to selected dependencies, subject to the chosen goal and known current versions or exact manifest pins. A source or dependency repair is marked as requiring the verified patch, which can be reviewed and downloaded; Oriclus does not apply it to your project. Review the patch and use `git apply --check` against your own checkout before deciding whether to apply it. Missing current versions prevent this ranking. Results do not establish compatibility beyond the tests and environment recorded.
+
 For a new failure, Nemotron may propose a source patch, checked against the original tests on a fresh candidate branch. If enabled and the source patch does not verify, Nemotron may propose up to two exact version changes to other direct dependencies. Oriclus validates those releases, keeps the primary version and explicit goal fixed, and uses the native manager to generate dependency files. It applies the resulting patch to a fresh baseline branch, independently installs it with network access, checks selected installed versions and that installation did not alter source or tests, then reruns the original tests offline. A failed test may trigger one additional proposal; each attempt remains visible. When configured, Tavily receives dependency names, the selected version and an extracted error keyword for public research. Unsupported manifests, invalid model proposals, installation failures and test failures remain visible. Both patches are reviewable proposals; neither is applied to the user's project. The dependency-file path currently supports direct selections and pip projects with a root `requirements.txt`; complex workspaces and other manifest forms may be unavailable.
 
 Reproducible examples are available:
@@ -84,6 +86,7 @@ uv run python -m unittest discover -s tests -v
 uv run ruff check server tests scripts
 uv run ruff format --check server tests scripts
 npm run format:check
+npm run test:decision
 npm run build
 ```
 

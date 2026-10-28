@@ -1,5 +1,12 @@
 # Dependency Time Machine implementation checklist
 
+## Show, guide and use experiment evidence
+
+- [x] Select a recorded combination and focus its exact dependency versions on the timeline; mark experiment participation without assigning global pass or fail to an individual version.
+- [x] Rank only completed, passing options that meet the selected goal by changes from known current versions; explain unknowns, ties and repairs.
+- [x] Make original test evidence, verification and downloadable patches accessible for review without changing the user's project.
+- [x] Verify recorded experiments, decision edge cases and the rendered interface, then commit and push.
+
 ## Bun, Go, Cargo and large-project follow-up
 
 - [x] Add Bun native resolution and Sandbox testing, with an independently verified example.
