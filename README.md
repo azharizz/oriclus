@@ -1,12 +1,178 @@
-# Oriclus
+<p align="center">
+  <img src="submission/assets/oriclus-banner.png" alt="Oriclus: Resolved isn't tested. Explore every release, resolve with your own package manager, prove the upgrade in Nebius Sandboxes." width="100%">
+</p>
 
-Explore dependency release histories, resolve candidate upgrades, and test them in branchable Nebius Sandboxes. Oriclus is a local, single-operator workspace. A version that resolves is not necessarily tested; passing selected tests does not guarantee compatibility.
+<div align="center">
+  <h1>ORICLUS</h1>
+  <p><strong>A dependency workspace that explores every release, resolves with your own package manager, and proves the upgrade with your tests in Nebius Sandboxes.</strong></p>
+  <p><em><b>Ori</b>go + <b>cyclus</b>: trace a dependency change from its origin through every cycle of evidence.</em></p>
+  <p>
+    <a href="submission/submission-description.md"><img src="https://img.shields.io/badge/SUBMISSION%20DESCRIPTION-6057F7?style=for-the-badge&logoColor=white" alt="Read the submission description"></a>
+    <a href="https://nebiusglobalaihackathon.devpost.com/"><img src="https://img.shields.io/badge/NEBIUS%20GLOBAL%20AI%20HACKATHON-121215?style=for-the-badge" alt="Nebius Global AI Hackathon"></a>
+    <a href="https://3t3h4y5hhclp2y2u3fwu5tfkky0mwnqm.lambda-url.us-east-1.on.aws/"><img src="https://img.shields.io/badge/LIVE%20DEMO-B7ECAA?style=for-the-badge&logo=amazonaws&logoColor=121215" alt="Hosted Oriclus demo on AWS Lambda"></a>
+  </p>
+  <p>
+    <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-B7ECAA.svg" alt="Apache 2.0 license"></a>
+    <img src="https://img.shields.io/badge/Python-3.12+-3776AB.svg" alt="Python 3.12+">
+    <img src="https://img.shields.io/badge/FastAPI-local%20service-009688.svg" alt="FastAPI">
+    <img src="https://img.shields.io/badge/React-19.3-61DAFB.svg" alt="React 19.3">
+    <img src="https://img.shields.io/badge/TypeScript-7.0-3178C6.svg" alt="TypeScript 7.0">
+    <img src="https://img.shields.io/badge/Vite-8.3-646CFF.svg" alt="Vite 8.3">
+  </p>
+  <p>
+    <img src="https://img.shields.io/badge/Nebius-Token%20Factory%20Sandboxes-6057F7.svg" alt="Nebius Token Factory Sandboxes">
+    <img src="https://img.shields.io/badge/NVIDIA-Nemotron-76B900.svg" alt="NVIDIA Nemotron">
+    <img src="https://img.shields.io/badge/Tavily-release%20research-8BD8FF.svg" alt="Tavily">
+    <img src="https://img.shields.io/badge/managers-pip%20%C2%B7%20uv%20%C2%B7%20Poetry%20%C2%B7%20npm%20%C2%B7%20Yarn%20%C2%B7%20pnpm%20%C2%B7%20Bun-F0C879.svg" alt="Supported package managers">
+    <img src="https://img.shields.io/badge/experimental-Go%20%C2%B7%20Cargo-A9A9B0.svg" alt="Experimental Go and Cargo">
+    <img src="https://img.shields.io/badge/AWS-Lambda%20%C2%B7%20SQS%20%C2%B7%20S3%20%C2%B7%20DynamoDB-ED7100.svg" alt="AWS hosted demo">
+  </p>
+  <p>
+    <a href="submission/submission-description.md">Submission</a> ·
+    <a href="submission/assets/film-hero.gif">Film</a> ·
+    <a href="submission/assets/oriclus-architecture.gif">Architecture</a> ·
+    <a href="PRODUCT.md">Product</a> ·
+    <a href="DESIGN.md">Design</a> ·
+    <a href="docs/evaluation-cases.md">Evaluation cases</a>
+  </p>
+  <p><sub>Explore the timeline → resolve with your package manager → test every combination in Sandboxes → verify a repair → decide</sub></p>
+</div>
 
-## What Oriclus does
+> [!TIP]
+> **Try the hosted app:** [https://3t3h4y5hhclp2y2u3fwu5tfkky0mwnqm.lambda-url.us-east-1.on.aws/](https://3t3h4y5hhclp2y2u3fwu5tfkky0mwnqm.lambda-url.us-east-1.on.aws/)<br>
+> Paste a public GitHub repository, explore its release timeline, resolve a release and run Sandbox tests. The hosted app accepts public GitHub projects only, shares a lifetime quota of 250 operations across all visitors, and allows up to four combinations per experiment. See [AWS hosted demo](#aws-hosted-demo).
 
-**Oriclus** combines *origo* and *cyclus*: trace dependency changes from an origin through repeated experiments. Its goal is to help developers answer: **“Which dependency versions work together with my project and its tests?”**
+> [!IMPORTANT]
+> A version that **resolves** is not necessarily **tested**, and passing your selected tests does not guarantee compatibility. Oriclus is a local, single-operator workspace; its API controls code execution and is designed for loopback, not public hosting. Proposed patches are never applied to your project automatically.
 
-A package manager determines whether declared requirements can be resolved. Oriclus uses that manager, then adds a release timeline, isolated experiments, research, and evidence. It does not replace the package manager or prove that untested behavior is compatible.
+<details>
+<summary><kbd>Contents</kbd></summary>
+
+- [At a glance](#-at-a-glance)
+- [The problem](#the-problem)
+- [The Oriclus loop](#the-oriclus-loop)
+- [See the product](#see-the-product)
+- [How it works](#how-it-works)
+- [Feature inventory](#feature-inventory)
+- [Who it helps](#who-it-helps)
+- [Recorded verification](#recorded-verification)
+- [Get started](#get-started)
+- [Time machine](#time-machine)
+- [What's New and metrics](#whats-new-and-metrics)
+- [Supported inputs and limitations](#supported-inputs-and-limitations)
+- [Data and security](#data-and-security)
+- [AWS hosted demo](#aws-hosted-demo)
+- [Development](#development)
+- [Repository map](#repository-map)
+- [License](#license)
+
+</details>
+
+## 🧭 At a glance
+
+<table>
+  <tr>
+    <td width="25%" align="center"><strong>01 / EXPLORE</strong><br><br>Every direct and related dependency on one publication-date timeline, from GitHub or a local folder.</td>
+    <td width="25%" align="center"><strong>02 / RESOLVE</strong><br><br>Your project's own package manager resolves a chosen release in a Nebius Sandbox. Labelled <em>not tested</em>.</td>
+    <td width="25%" align="center"><strong>03 / EXPERIMENT</strong><br><br>Baseline first, then each combination in its own branch, three at a time, tests offline.</td>
+    <td width="25%" align="center"><strong>04 / PROVE</strong><br><br>NVIDIA Nemotron investigates failures; patches are re-tested on a fresh branch and handed back for review.</td>
+  </tr>
+</table>
+
+## The problem
+
+`pip install -U flask` prints **Successfully installed flask-2.3.3**. Then the tests fail:
+
+```text
+AttributeError: 'Flask' object has no attribute 'before_first_request'
+```
+
+<p align="center">
+  <img src="submission/assets/film-crime.gif" alt="A successful install followed by a failing test run: IT BROKE." width="80%">
+</p>
+
+A package manager can tell you whether declared requirements resolve. It cannot tell you **which versions of your dependencies work together with your code and your tests**. Oriclus answers that question with recorded, isolated evidence.
+
+## The Oriclus loop
+
+<p align="center">
+  <img src="submission/assets/film-hero.gif" alt="The Oriclus mark builds, then RESOLVED ≠ TESTED" width="100%">
+</p>
+
+| Stage | What happens | What cannot happen silently |
+| --- | --- | --- |
+| **Explore** | Manifests are read at a recorded GitHub commit or from a local snapshot; release dates come from public registries. | Dates show availability, not compatibility. |
+| **Resolve** | The native manager resolves a chosen release inside a Nebius Sandbox; declared links are drawn on the timeline. | A resolved set is never shown as a passing test. |
+| **Experiment** | Up to five dependencies and 12 combinations; the baseline runs first, then up to three branches at once with networking disabled for tests. | A candidate is only passed or failed when the baseline passes. |
+| **Investigate** | On a qualifying failure, Nemotron plans, runs offline tools and proposes a patch; every message and tool call is recorded. | The agent cannot mark its own patch as verified. |
+| **Prove and decide** | The patch is re-tested on a fresh branch; **Review** focuses a combination on the timeline; fewest-change passing options are suggested. | Patches are never applied to your project. |
+
+## See the product
+
+<table>
+  <tr>
+    <td width="50%"><img src="submission/assets/film-choose.gif" alt="Choosing a GitHub repository and subdirectory, then Explore versions"><br><sub><strong>Choose a project.</strong> Public GitHub or a local folder, optionally one subdirectory.</sub></td>
+    <td width="50%"><img src="submission/assets/film-resolve.gif" alt="Flask 2.2.5 resolved with declared-dependency lines traced on the real timeline"><br><sub><strong>Resolve.</strong> Declared links from the resolver-selected releases. Resolved, not yet tested.</sub></td>
+  </tr>
+  <tr>
+    <td width="50%"><img src="submission/assets/film-experiment.gif" alt="Queueing four versions into a 2x2 combination grid and running Sandbox tests"><br><sub><strong>Experiment.</strong> 2 Flask × 2 Werkzeug releases = 4 combinations, one test command.</sub></td>
+    <td width="50%"><img src="submission/assets/film-branches.gif" alt="Project snapshot branching into Sandbox lanes, three running at once"><br><sub><strong>Sandbox branches.</strong> Baseline, then three branches at a time, tests offline.</sub></td>
+  </tr>
+  <tr>
+    <td width="50%"><img src="submission/assets/film-nemotron.gif" alt="The real agent decisions list scrolling while Nemotron's finding types out"><br><sub><strong>Investigate.</strong> Recorded tool calls, then “Flask 2.3.3 removed before_first_request.”</sub></td>
+    <td width="50%"><img src="submission/assets/film-patch.gif" alt="Diff morph and PATCH VERIFIED on a fresh branch"><br><sub><strong>Verify.</strong> Re-tested on a fresh branch, then handed back for review.</sub></td>
+  </tr>
+  <tr>
+    <td width="50%"><img src="submission/assets/film-whatsnew.gif" alt="What's New: pick a release, search with Tavily, read cited findings"><br><sub><strong>What's New.</strong> Tavily release research with cited sources, linked to the timeline.</sub></td>
+    <td width="50%"><img src="submission/assets/film-history.gif" alt="⌘K to History and reopening an experiment"><br><sub><strong>History.</strong> Reopen any experiment with its evidence; ⌘K jumps anywhere.</sub></td>
+  </tr>
+</table>
+
+| Release timeline | Compare combinations | Verified patch |
+| --- | --- | --- |
+| ![Release timeline with declared-dependency lines](submission/screenshots/release-timeline.jpg) | ![Comparison of four combinations](submission/screenshots/compare-combinations.jpg) | ![Source patch with verification](submission/screenshots/verified-patch.jpg) |
+| **Sandbox experiment running** | **Agent plan and decisions** | **Cited release research** |
+| ![Sandbox experiment running](submission/screenshots/sandbox-running.jpg) | ![Recorded agent decisions](submission/screenshots/agent-decisions.jpg) | ![Flask 2.3.3 release research](submission/screenshots/release-research.jpg) |
+
+<sub>GIFs are cut from the project showreel, built from a screen recording of the real app on the constructed <code>examples/legacy-matrix</code> project. Screenshots are frames from that recording.</sub>
+
+## How it works
+
+<p align="center">
+  <img src="submission/assets/oriclus-architecture.gif" alt="Animated architecture cycling through Explore, Resolve, Experiment, Investigate and Research" width="100%">
+</p>
+
+```mermaid
+sequenceDiagram
+  autonumber
+  actor You
+  participant UI as Oriclus UI
+  participant API as Local service (FastAPI)
+  participant SBX as Nebius Sandboxes
+  participant NEM as NVIDIA Nemotron
+  participant TAV as Tavily
+  You->>UI: Choose a project, pick a release
+  UI->>API: Analyze and resolve
+  API->>SBX: Native resolver in an isolated Sandbox
+  SBX-->>UI: Resolved set (not tested)
+  You->>UI: Queue versions, run tests
+  API->>SBX: Snapshot once, baseline, branch per combination (3 at a time, offline)
+  SBX-->>API: Pass / fail / inconclusive per combination
+  API->>NEM: Qualifying failure + offline tools
+  NEM-->>API: Plan, tool calls, proposed patch
+  API->>SBX: Re-run original tests on a fresh branch
+  SBX-->>UI: Verified (or failed / rejected) patch to review
+  You->>UI: Research a release in What's New
+  UI->>API: Search
+  API->>TAV: Dependency + version
+  TAV-->>UI: Cited findings, saved locally
+```
+
+| Service | Runtime role |
+| --- | --- |
+| **Nebius Token Factory Sandboxes** | Snapshots, native installs, baselines, concurrent candidate branches, offline tests, patch verification, cancellation. |
+| **NVIDIA Nemotron** (Token Factory) | Resolver-conflict explanations, failure investigation with recorded tool use, source and dependency-file patch proposals. |
+| **Tavily** | User-initiated release research with citations for What's New and the timeline; may be supplied to the repair agent. |
 
 ## Feature inventory
 
@@ -128,6 +294,8 @@ Dependency installation and resolution require network access and may execute pr
 
 ## AWS hosted demo
 
+**Hosted app:** [https://3t3h4y5hhclp2y2u3fwu5tfkky0mwnqm.lambda-url.us-east-1.on.aws/](https://3t3h4y5hhclp2y2u3fwu5tfkky0mwnqm.lambda-url.us-east-1.on.aws/)
+
 The optional public demo uses an AWS Lambda function URL for the app, an SQS-backed Lambda worker for background jobs, private S3 storage for per-browser checkpoints, DynamoDB for the shared lifetime operation counter, and an encrypted Systems Manager parameter for the host's Nebius and Tavily credentials. These services are usage based but are **not guaranteed to be free**. Nebius and Tavily usage is billed separately. The public endpoint has no sign-in: anyone can consume the deployment's shared quota.
 
 The lifetime quota is **250 shared operations** across all visitors and persists in DynamoDB across deployments. Starting an analysis, resolution, experiment, release research or feed refresh consumes one operation, including failures after hosted input validation. Page views and progress polling do not consume the operation counter but can incur AWS request costs. Hosted experiments allow at most four combinations; feed refresh requires filtering to at most five libraries; model repair is limited to six turns. A single operation can still make multiple Sandbox, model or Tavily calls, so the counter is **not a monetary spending limit**.
@@ -167,3 +335,19 @@ uv run python -m scripts.benchmark_uv --trials 1
 The default compares the bundled Python example, MarkupSafe 2.0.1 and 2.1.5, and `python -m unittest -v`. Use `--project`, `--package`, `--versions`, and `--test` for another supported pip project with a `requirements.txt` file; `--trials` accepts 1–5. Both paths use separate Nebius Sandbox branches from the same project and run the same candidate constraints and tests. The uv-only path installs with uv and does not perform an AI repair; Oriclus uses the project's pip resolver, records results and can run repair verification. Resolver choices, caching, network, image preparation and other work can differ, so matching outcomes do not imply identical environments or equal effort. The script prints trial data and denominators to the console without writing a comparison file. Oriclus experiment records are still saved in the local `.oriclus/` history. Sandbox and model calls can consume credits.
 
 Release-specific research appears on the main timeline as an outlined marker and is shown with citations in the selected release panel. General searches without a specific version do not imply relevance to an individual release. New experiments record a provisional model-authored plan and the public model messages, tool requests, and tool outcomes; older runs cannot reconstruct decisions they did not record. These are saved locally with the run and can include code or commands, so protect local history as project data. The plan is advisory and may change as the agent learns from tool results.
+
+## Repository map
+
+| Path | What lives there |
+| --- | --- |
+| `web/src/` | React workspace: timeline, inspector, experiments, What's New, History, Metrics, ⌘K palette. |
+| `server/` | FastAPI service: analysis, resolution, Sandbox execution, agent and repair, research feed, metrics. |
+| `deploy/aws/` | Optional hosted demo (Lambda, SQS, S3, DynamoDB) and its deployment script. |
+| `examples/` | Reproducible example projects, including `legacy-matrix` and the `timeline-*` examples. |
+| `tests/` | Backend unit tests and frontend decision tests. |
+| `docs/` | Demo script, evaluation cases, maintainer evaluation, submission checklist. |
+| `submission/` | Submission description, banner, GIFs, architecture animation and screenshots. |
+
+## License
+
+Oriclus is released under the [Apache License 2.0](LICENSE). Additional MIT license text for project testing material is in [`LICENSES/`](LICENSES/project-testing-MIT.txt).
